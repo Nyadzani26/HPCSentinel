@@ -1,0 +1,58 @@
+# HPCSentinel: three long-running containers (database, web, worker) built from one image.
+# A short-lived "migrate" container prepares the database before web and worker start.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - platform_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    command: python manage.py migrate --noinput
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: .
+    command: gunicorn hpcsentinel.wsgi:application --bind 0.0.0.0:8000 --workers 2
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: python manage.py run_worker
+    env_file: .env
+    # Lets the container reach a Prometheus server running on the host machine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./config:/app/config:ro
+      - model_store:/app/model_store
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  platform_data:
+  model_store:

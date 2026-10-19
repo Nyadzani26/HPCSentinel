@@ -1,0 +1,78 @@
+"""Configuration loading and validation (FR-05, NFR-10, Section 4.4)."""
+import copy
+import tempfile
+from pathlib import Path
+
+import yaml
+from django.test import SimpleTestCase
+
+from core.config import ConfigError, build_query, load_config, node_name, validate
+
+EXAMPLE = Path(__file__).resolve().parents[2] / "config" / "hpcsentinel.example.yml"
+
+
+def example():
+    return yaml.safe_load(EXAMPLE.read_text())
+
+
+class ConfigTests(SimpleTestCase):
+    def test_example_file_is_valid(self):
+        cfg = load_config(EXAMPLE)
+        self.assertGreaterEqual(len(cfg["metrics"]), 10)
+
+    def test_every_example_query_is_limited_by_the_selector(self):
+        cfg = load_config(EXAMPLE)
+        for metric in cfg["metrics"]:
+            self.assertIn('job="node"', build_query(cfg, metric))
+            self.assertNotIn("$SELECTOR", build_query(cfg, metric))
+
+    def test_query_without_selector_is_rejected(self):
+        cfg = example()
+        cfg["metrics"][0]["query"] = "node_load1"
+        with self.assertRaisesRegex(ConfigError, r"cpu_busy.*\$SELECTOR"):
+            validate(cfg)
+
+    def test_missing_section_is_named(self):
+        cfg = example()
+        del cfg["detection"]
+        with self.assertRaisesRegex(ConfigError, "Missing 'detection'"):
+            validate(cfg)
+
+    def test_duplicate_metric_name_is_rejected(self):
+        cfg = example()
+        cfg["metrics"].append(copy.deepcopy(cfg["metrics"][0]))
+        with self.assertRaisesRegex(ConfigError, "used more than once"):
+            validate(cfg)
+
+    def test_bad_regular_expression_is_rejected(self):
+        cfg = example()
+        cfg["cluster"]["node_name_regex"] = "(["
+        with self.assertRaisesRegex(ConfigError, "regular expression"):
+            validate(cfg)
+
+    def test_out_of_range_settings_are_rejected(self):
+        for key, value, text in [
+            ("retrieval_interval_seconds", 5, "at least 30"),
+            ("persistence_windows", 0, "between 1 and 20"),
+            ("alert_threshold", 0, "greater than zero"),
+        ]:
+            cfg = example()
+            cfg["detection"][key] = value
+            with self.assertRaisesRegex(ConfigError, text):
+                validate(cfg)
+
+    def test_malformed_yaml_and_missing_file(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".yml") as f:
+            f.write("a: [unclosed")
+            f.flush()
+            with self.assertRaisesRegex(ConfigError, "not valid YAML"):
+                load_config(f.name)
+        with self.assertRaisesRegex(ConfigError, "Cannot read"):
+            load_config("/nonexistent/hpcsentinel.yml")
+
+    def test_node_name_mapping(self):
+        cfg = example()
+        cfg["cluster"]["node_name_regex"] = r"^10\.10\.10\.1(?P<n>\d\d):9100$"
+        cfg["cluster"]["node_name_template"] = "compute{n}"
+        self.assertEqual(node_name(cfg, "10.10.10.116:9100"), "compute16")
+        self.assertIsNone(node_name(cfg, "192.168.1.5:9100"))

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}HPCSentinel{% endblock %}</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; color: #1d2733; background: #f6f7f9; }
+    header { background: #1d2733; color: #fff; padding: .75rem 1.25rem; display: flex; justify-content: space-between; }
+    header a { color: #fff; }
+    main { max-width: 60rem; margin: 2rem auto; padding: 0 1.25rem; }
+    .stack > * + * { margin-top: .9rem; }
+    label { display: block; }
+    input { display: block; margin-top: .25rem; padding: .4rem; width: 18rem; max-width: 100%; }
+    button { padding: .5rem 1rem; }
+    .error { color: #9b1c1c; }
+  </style>
+</head>
+<body>
+  <header>
+    <strong>HPCSentinel</strong>
+    {% if user.is_authenticated %}
+    <span>{{ user.username }} ({{ user.get_role_display }})
+      <form method="post" action="{% url 'logout' %}" style="display:inline">{% csrf_token %}<button type="submit">Sign out</button></form>
+    </span>
+    {% endif %}
+  </header>
+  <main>{% block content %}{% endblock %}</main>
+</body>
+</html>

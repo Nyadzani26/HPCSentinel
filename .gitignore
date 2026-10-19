@@ -1,0 +1,26 @@
+# secrets and local settings
+.env
+*.pem
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# django
+db.sqlite3
+staticfiles/
+model_store/
+
+# data exports (keep out of the repository)
+*.csv
+exports/
+
+# editors and OS
+.idea/
+.vscode/
+.DS_Store
+
+# facility-specific configuration (copy from config/hpcsentinel.example.yml)
+config/hpcsentinel.yml

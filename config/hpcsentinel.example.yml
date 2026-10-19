@@ -1,0 +1,83 @@
+# HPCSentinel configuration (FR-05, NFR-10).
+# Copy this file to config/hpcsentinel.yml and edit it for your cluster.
+# Changing metrics, node names or detector settings needs no change to the code.
+#
+# Every query must contain $SELECTOR. It is replaced by cluster.selector, which limits
+# the query to the nodes being monitored and keeps the platform from reading anything else.
+
+prometheus:
+  # Address of Prometheus. The PROMETHEUS_URL environment variable overrides this value.
+  url: http://localhost:9090
+  step_seconds: 15          # resolution requested from Prometheus
+  timeout_seconds: 20
+
+cluster:
+  # Prometheus label matchers that select the compute nodes (without the braces).
+  selector: 'job="node"'
+  # Label that identifies a node in the node-exporter series.
+  node_label: instance
+  # How the label value is turned into the node name shown in the platform.
+  # Example for values such as "10.10.10.116:9100" -> "compute16":
+  #   node_name_regex: '^10\.10\.10\.1(?P<n>\d\d):9100$'
+  #   node_name_template: 'compute{n}'
+  node_name_regex: '^(?P<host>[^:]+):\d+$'
+  node_name_template: '{host}'
+
+detection:
+  retrieval_interval_seconds: 120   # how often a detection cycle runs (default two minutes)
+  persistence_windows: 3            # consecutive abnormal windows required for an alert (BR-01)
+  alert_threshold: 3.0              # combined score above which a window is abnormal
+  window_minutes: 15                # span of data used to prepare each window
+  load_idle_cpu_busy: 0.10          # CPU busy ratio below which a node counts as idle
+
+# Metrics used by the detector. Each query returns one series per node.
+# Metrics missing on a cluster are reported by the readiness check and skipped.
+metrics:
+  - name: cpu_busy
+    group: cpu
+    query: '1 - avg by (instance) (rate(node_cpu_seconds_total{$SELECTOR,mode="idle"}[2m]))'
+  - name: load_per_core
+    group: cpu
+    query: 'node_load1{$SELECTOR} / on(instance) count by (instance) (node_cpu_seconds_total{$SELECTOR,mode="idle"})'
+  - name: context_switch_rate
+    group: cpu
+    query: 'rate(node_context_switches_total{$SELECTOR}[2m])'
+  - name: mem_available_ratio
+    group: memory
+    query: 'node_memory_MemAvailable_bytes{$SELECTOR} / node_memory_MemTotal_bytes{$SELECTOR}'
+  - name: swap_used_bytes
+    group: memory
+    query: 'node_memory_SwapTotal_bytes{$SELECTOR} - node_memory_SwapFree_bytes{$SELECTOR}'
+  - name: major_fault_rate
+    group: memory
+    query: 'rate(node_vmstat_pgmajfault{$SELECTOR}[2m])'
+  - name: ecc_correctable_15m
+    group: memory
+    query: 'sum by (instance) (increase(node_edac_correctable_errors_total{$SELECTOR}[15m]))'
+  - name: net_rx_bytes_rate
+    group: network
+    query: 'rate(node_network_receive_bytes_total{$SELECTOR,device="eth0"}[2m])'
+  - name: net_tx_bytes_rate
+    group: network
+    query: 'rate(node_network_transmit_bytes_total{$SELECTOR,device="eth0"}[2m])'
+  - name: net_error_rate
+    group: network
+    query: 'rate(node_network_receive_errs_total{$SELECTOR,device="eth0"}[2m]) + rate(node_network_transmit_errs_total{$SELECTOR,device="eth0"}[2m])'
+  - name: net_drop_rate
+    group: network
+    query: 'rate(node_network_receive_drop_total{$SELECTOR,device="eth0"}[2m]) + rate(node_network_transmit_drop_total{$SELECTOR,device="eth0"}[2m])'
+  - name: disk_busy_ratio
+    group: storage
+    query: 'sum by (instance) (rate(node_disk_io_time_seconds_total{$SELECTOR}[2m]))'
+  - name: nfs_request_rate
+    group: storage
+    query: 'sum by (instance) (rate(node_nfs_requests_total{$SELECTOR}[2m]))'
+  - name: processes_blocked
+    group: system
+    query: 'node_procs_blocked{$SELECTOR}'
+  - name: open_file_descriptors
+    group: system
+    query: 'node_filefd_allocated{$SELECTOR}'
+  - name: clock_offset_seconds
+    group: system
+    query: 'abs(node_timex_offset_seconds{$SELECTOR})'

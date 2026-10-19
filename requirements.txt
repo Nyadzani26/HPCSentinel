@@ -1,0 +1,13 @@
+APScheduler==3.11.3
+Django==5.2.18
+gunicorn==26.2.0
+joblib==1.5.3
+numpy==2.4.4
+pandas==3.0.2
+psycopg==3.3.6
+psycopg-binary==3.3.6
+PyYAML==6.0.3
+requests==2.33.1
+scikit-learn==1.8.0
+scipy==1.17.1
+whitenoise==6.12.0
