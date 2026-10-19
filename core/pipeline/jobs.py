@@ -1,4 +1,4 @@
-"""Work the worker does on request: train, replay and evaluate (FR-28 to FR-30, workflow 3).
+"""Work the worker does on request: train, replay and evaluate (FR-28 to FR-30, FR-17, workflow 3).
 
 The web application only writes a Job row; the worker picks it up and runs one of the
 functions below. Replay uses the same scoring and alert code as the live cycle (D-5).
@@ -62,17 +62,22 @@ def _node_frames(frames: dict[str, pd.DataFrame]) -> dict[Node, pd.DataFrame]:
     return {known[label]: frame for label, frame in frames.items() if label in known}
 
 
-def _drop_excluded(frame: pd.DataFrame) -> pd.DataFrame:
-    """Rows inside an excluded period, and the hour after it, are never learned from (BR-03)."""
-    for period in ExcludedPeriod.objects.all():
-        lo = pd.Timestamp(period.start_at).tz_convert("UTC")
-        hi = pd.Timestamp(period.end_at).tz_convert("UTC") + pd.Timedelta(minutes=60)
+def _drop_excluded(frame: pd.DataFrame, extra=()) -> pd.DataFrame:
+    """Rows inside an excluded period, and the hour after it, are never learned from (BR-03).
+
+    `extra` holds further (start, end) pairs, used when re-learning to leave out the time
+    of alerts that were not dismissed as false alarms.
+    """
+    spans = [(p.start_at, p.end_at) for p in ExcludedPeriod.objects.all()] + list(extra)
+    for start, end in spans:
+        lo = pd.Timestamp(start).tz_convert("UTC")
+        hi = pd.Timestamp(end).tz_convert("UTC") + pd.Timedelta(minutes=60)
         frame = frame[(frame.index < lo) | (frame.index > hi)]
     return frame
 
 
 def train(cfg: dict, client, start, end, label: str | None = None, user: User | None = None,
-          job: Job | None = None) -> ModelVersion:
+          job: Job | None = None, exclusions=()) -> ModelVersion:
     """Learn baselines and the Isolation Forest from a period believed to be normal (FR-28)."""
     start, end = parse_time(start), parse_time(end)
     if end <= start:
@@ -86,7 +91,7 @@ def train(cfg: dict, client, start, end, label: str | None = None, user: User | 
     tables, groups = {}, {}
     for node, frame in frames.items():
         table = feat.training_table(frame, cfg, stride)
-        table = _drop_excluded(table)
+        table = _drop_excluded(table, exclusions)
         table = table[(table.index >= pd.Timestamp(start)) & (table.index <= pd.Timestamp(end))]
         if len(table):
             tables[node.name] = table
@@ -107,6 +112,21 @@ def train(cfg: dict, client, start, end, label: str | None = None, user: User | 
                    "forests": sorted(detector.forests), "baselines": detector.baselines, "pooled": detector.pooled},
         file_path=str(path), config=config_version, job=job,
     )
+
+
+def relearn(cfg: dict, client, now=None) -> ModelVersion:
+    """Re-learn baselines from a rolling window of recent normal data (FR-17).
+
+    The window ends now and covers `relearn_days` days. Time around alerts that were not
+    dismissed as false alarms is left out, so a developing fault is not learned as normal.
+    """
+    now = parse_time(now) if now else timezone.now()
+    days = int(cfg["detection"].get("relearn_days", 14))
+    suspect = Alert.objects.filter(mode=Alert.Mode.LIVE, opened_at__gte=now - timedelta(days=days)) \
+        .exclude(outcome=Alert.Outcome.FALSE_ALARM)
+    exclusions = [(a.opened_at - timedelta(hours=1), a.closed_at or now) for a in suspect]
+    label = "auto-" + now.strftime("%Y%m%d-%H%M")
+    return train(cfg, client, now - timedelta(days=days), now, label=label, user=get_system_user(), exclusions=exclusions)
 
 
 def _clear_replay():

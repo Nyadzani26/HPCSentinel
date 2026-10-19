@@ -51,7 +51,8 @@
     <nav style="display:flex;gap:1.1rem">
       <a href="{% url 'home' %}" {% if request.resolver_match.url_name == 'home' or request.resolver_match.url_name == 'node_detail' %}class="on"{% endif %}>Fleet</a>
       <a href="{% url 'alert_list' %}" {% if 'alert' in request.resolver_match.url_name %}class="on"{% endif %}>Alerts</a>
-      {% if user.is_administrator %}<a href="{% url 'controls' %}" {% if request.resolver_match.url_name == 'controls' %}class="on"{% endif %}>Controls</a>{% endif %}
+      {% if user.is_administrator %}<a href="{% url 'users' %}" {% if request.resolver_match.url_name == 'users' %}class="on"{% endif %}>Users</a>
+      <a href="{% url 'controls' %}" {% if request.resolver_match.url_name == 'controls' %}class="on"{% endif %}>Controls</a>{% endif %}
     </nav>
     <span class="right">{{ user.username }} ({{ user.get_role_display }})
       <form method="post" action="{% url 'logout' %}" class="inline">{% csrf_token %}<button type="submit">Sign out</button></form>

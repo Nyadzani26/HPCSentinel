@@ -7,10 +7,44 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.config import ConfigError, load_config
 from core.pipeline.cycle import DetectionCycle
-from core.pipeline.jobs import process_pending
-from core.services.prometheus import PrometheusClient, PrometheusError
+from core.pipeline.jobs import JobError, process_pending, relearn
+from core.services.prometheus import PrometheusError
+from core.services.settings_store import effective_config, make_client
 
 log = logging.getLogger(__name__)
+
+
+class Worker:
+    """Holds the file configuration and applies settings changed in the web interface each tick."""
+
+    def __init__(self, file_cfg: dict):
+        self.file_cfg = file_cfg
+        self.cycle = None
+
+    def current(self):
+        cfg = effective_config(self.file_cfg)
+        return cfg, make_client(cfg)
+
+    def tick(self):
+        cfg, client = self.current()
+        if self.cycle is None:
+            self.cycle = DetectionCycle(cfg, client)
+        self.cycle.cfg, self.cycle.client = cfg, client
+        return self.cycle.run()
+
+    def jobs(self):
+        cfg, client = self.current()
+        return process_pending(cfg, client)
+
+    def relearn(self):
+        cfg, client = self.current()
+        try:
+            model = relearn(cfg, client)
+            log.info("Scheduled re-learning produced %s.", model.label)
+        except (JobError, PrometheusError) as exc:
+            log.warning("Scheduled re-learning skipped: %s", exc)
+        except Exception:  # noqa: BLE001 - never stop the worker
+            log.exception("Scheduled re-learning failed.")
 
 
 class Command(BaseCommand):
@@ -22,25 +56,27 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
         try:
-            cfg = load_config(settings.HPCSENTINEL_CONFIG)
-            url = settings.PROMETHEUS_URL or cfg["prometheus"].get("url", "")
-            client = PrometheusClient(url, timeout=cfg["prometheus"]["timeout_seconds"])
+            file_cfg = load_config(settings.HPCSENTINEL_CONFIG)
+            worker = Worker(file_cfg)
+            cfg, _ = worker.current()
         except (ConfigError, PrometheusError) as exc:
             raise CommandError(str(exc))
 
-        cycle = DetectionCycle(cfg, client)
         if options["once"]:
-            process_pending(cfg, client)
-            cycle.run()
+            worker.jobs()
+            worker.tick()
             return
 
-        interval = cfg["detection"]["retrieval_interval_seconds"]
         scheduler = BlockingScheduler(timezone="UTC")
-        scheduler.add_job(cycle.run, "interval", seconds=interval, max_instances=1, coalesce=True)
+        interval = cfg["detection"]["retrieval_interval_seconds"]
+        scheduler.add_job(worker.tick, "interval", seconds=interval, max_instances=1, coalesce=True)
         # Requests made in the web application (train, replay, evaluate) are picked up here (D-3).
-        scheduler.add_job(lambda: process_pending(cfg, client), "interval", seconds=10, max_instances=1, coalesce=True)
-        log.info("Worker started; one cycle every %s seconds against %s.", interval, url)
-        cycle.run()  # first cycle immediately
+        scheduler.add_job(worker.jobs, "interval", seconds=10, max_instances=1, coalesce=True)
+        hours = int(cfg["detection"].get("relearn_hours", 168))
+        if hours > 0:
+            scheduler.add_job(worker.relearn, "interval", hours=hours, max_instances=1, coalesce=True)
+        log.info("Worker started; one cycle every %s seconds against %s.", interval, cfg["prometheus"]["url"])
+        worker.tick()  # first cycle immediately
         try:
             scheduler.start()
         except (KeyboardInterrupt, SystemExit):

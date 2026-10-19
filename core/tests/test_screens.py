@@ -1,7 +1,9 @@
-"""Screens S-02 to S-05 and the controls: access control, triage flow and validation (FR-21 to FR-27, BR-04..BR-07, BR-11)."""
+"""Screens S-02 to S-05 and the controls: access control, triage flow and validation (FR-20 to FR-27, BR-04..BR-07, BR-11)."""
 from datetime import timedelta
 
-from django.test import TestCase
+from pathlib import Path
+
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -21,11 +23,11 @@ class FleetScreenTests(TestCase):
     def test_no_cycle_yet_is_explained(self):
         self.assertContains(self.client.get(reverse("home")), "No detection cycle has run yet")
 
-    def test_outage_banner_is_shown(self):  # FR-21, NFR-08
+    def test_outage_banner_is_shown(self):  # FR-20, NFR-08
         self.cycle(reachable=False)
         self.assertContains(self.client.get(reverse("home")), "Data source unavailable")
 
-    def test_tile_states(self):  # FR-21
+    def test_tile_states(self):  # FR-20
         config, model = make_config(), make_model(make_config())
         cyc = self.cycle()
         for name, quality in [("compute01", "RELIABLE"), ("compute02", "RELIABLE"), ("compute03", "RELIABLE"),
@@ -41,7 +43,7 @@ class FleetScreenTests(TestCase):
         self.assertEqual(html.count('class="tile review"'), 1)
         self.assertEqual(html.count('class="tile unknown"'), 2)
 
-    def test_node_detail_renders_without_data(self):  # FR-22
+    def test_node_detail_renders_without_data(self):  # FR-21
         make_node("compute01")
         self.assertContains(self.client.get(reverse("node_detail", args=["compute01"])), "No windows have been scored")
 
@@ -66,7 +68,7 @@ class TriageTests(TestCase):
         self.alert.refresh_from_db()
         self.assertEqual(self.alert.status, "OPEN")
 
-    def test_detail_shows_the_explanation(self):  # FR-19, FR-23
+    def test_detail_shows_the_explanation(self):  # FR-19, FR-22
         self.assertContains(self.client.get(reverse("alert_detail", args=[self.alert.pk])), "Why this alert was raised")
 
     def test_full_triage_flow_records_who_and_when(self):  # FR-24..FR-27, BR-11
@@ -118,6 +120,10 @@ class TriageTests(TestCase):
         self.assertIn("compute09", self.client.get(reverse("alert_list") + "?status=all").content.decode())
 
 
+EXAMPLE = str(Path(__file__).resolve().parents[2] / "config" / "hpcsentinel.example.yml")
+
+
+@override_settings(HPCSENTINEL_CONFIG=EXAMPLE, PROMETHEUS_URL="")
 class ControlsTests(TestCase):
     def setUp(self):
         self.admin = make_user("boss", role=User.Role.ADMINISTRATOR)
@@ -159,3 +165,100 @@ class ControlsTests(TestCase):
         response = self.client.post(reverse("controls"), {"action": "upload", "file": bad}, follow=True)
         self.assertContains(response, "unknown node")
         self.assertEqual(ExperimentEntry.objects.count(), 1)
+
+
+    def test_settings_are_validated_and_saved(self):  # FR-04, FR-18, FR-27
+        from core.models import PlatformSetting
+        self.client.force_login(self.admin)
+        ok = {"action": "settings", "prometheus_url": "http://prom:9090", "alert_threshold": "4.5", "persistence_windows": "4"}
+        self.client.post(reverse("controls"), ok)
+        self.assertEqual(PlatformSetting.objects.get(key="alert_threshold").value, 4.5)
+        self.assertEqual(PlatformSetting.objects.get(key="alert_threshold").updated_by, self.admin)
+        for bad in ({"prometheus_url": "not a url"}, {"alert_threshold": "0"}, {"persistence_windows": "50"}):
+            response = self.client.post(reverse("controls"), {**ok, **bad})
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(PlatformSetting.objects.get(key="persistence_windows").value, 4)
+        self.assertEqual(PlatformSetting.objects.get(key="prometheus_url").value, "http://prom:9090")
+
+    def test_effective_config_applies_saved_settings(self):  # FR-18
+        from core.config import load_config
+        from core.services import settings_store
+        self.client.force_login(self.admin)
+        self.client.post(reverse("controls"), {"action": "settings", "prometheus_url": "http://prom:9090", "alert_threshold": "5", "persistence_windows": "2"})
+        cfg = settings_store.effective_config(load_config(EXAMPLE))
+        self.assertEqual((cfg["detection"]["alert_threshold"], cfg["detection"]["persistence_windows"], cfg["prometheus"]["url"]),
+                         (5.0, 2, "http://prom:9090"))
+
+    def test_connection_test_reports_failure(self):  # FR-04
+        from unittest import mock
+        self.client.force_login(self.admin)
+        with mock.patch("core.services.prometheus.PrometheusClient.is_reachable", return_value=False):
+            response = self.client.post(reverse("controls"), {"action": "test_connection", "prometheus_url": "http://prom:9090"})
+        self.assertContains(response, "did not answer")
+
+    def test_readiness_report(self):  # FR-06
+        from unittest import mock
+        self.client.force_login(self.admin)
+        fake = {"a:9100": 1.0, "b:9100": 1.0, "c:9100": 1.0}
+        with mock.patch("core.services.prometheus.PrometheusClient.is_reachable", return_value=True), \
+             mock.patch("core.services.prometheus.PrometheusClient.query_instant", return_value=fake):
+            response = self.client.post(reverse("controls"), {"action": "readiness"})
+        self.assertContains(response, "Suspect")
+        self.assertContains(response, "Every node reports the same value")
+
+
+class UserManagementTests(TestCase):
+    def setUp(self):
+        self.admin = make_user("boss", role=User.Role.ADMINISTRATOR)
+        self.client.force_login(self.admin)
+
+    def test_operator_cannot_manage_users(self):  # BR-04
+        self.client.force_login(make_user("op"))
+        self.assertEqual(self.client.get(reverse("users")).status_code, 403)
+
+    def test_create_user_with_role_and_password_rules(self):  # FR-03, NFR-02
+        self.client.post(reverse("users"), {"username": "newop", "password": "a-long-enough-pass", "role": "OPERATOR"})
+        self.assertEqual(User.objects.get(username="newop").role, "OPERATOR")
+        self.assertNotEqual(User.objects.get(username="newop").password, "a-long-enough-pass")
+        response = self.client.post(reverse("users"), {"username": "weak", "password": "short", "role": "OPERATOR"})
+        self.assertContains(response, "too short")
+        self.assertFalse(User.objects.filter(username="weak").exists())
+
+    def test_duplicate_username_is_rejected(self):
+        response = self.client.post(reverse("users"), {"username": "BOSS", "password": "a-long-enough-pass", "role": "OPERATOR"})
+        self.assertContains(response, "already in use")
+
+    def test_deactivated_user_cannot_sign_in_and_last_admin_is_protected(self):  # FR-03
+        op = make_user("op")
+        self.client.post(reverse("user_update", args=[op.pk]), {"action": "deactivate"})
+        op.refresh_from_db()
+        self.assertFalse(op.is_active)
+        self.assertFalse(self.client.__class__().login(username="op", password="correct-horse-battery"))
+        response = self.client.post(reverse("user_update", args=[self.admin.pk]), {"action": "deactivate"}, follow=True)
+        self.assertContains(response, "cannot deactivate")
+        self.admin.refresh_from_db()
+        self.assertTrue(self.admin.is_active)
+
+    def test_role_change(self):
+        op = make_user("op")
+        self.client.post(reverse("user_update", args=[op.pk]), {"action": "ADMINISTRATOR"})
+        op.refresh_from_db()
+        self.assertEqual(op.role, "ADMINISTRATOR")
+
+
+class AlertFilterTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_user("op"))
+        make_alert(make_node("compute01"))
+        make_alert(make_node("compute02"))
+
+    def test_filter_by_node(self):  # FR-22
+        html = self.client.get(reverse("alert_list") + "?node=compute02").content.decode()
+        self.assertIn("compute02", html)
+        self.assertNotIn("compute01", html)
+
+    def test_filter_by_date_range_and_bad_date(self):  # FR-22
+        today = timezone.now().date().isoformat()
+        self.assertContains(self.client.get(reverse("alert_list") + f"?from={today}&to={today}"), "compute01")
+        self.assertNotContains(self.client.get(reverse("alert_list") + "?from=2020-01-01&to=2020-01-02"), "compute01")
+        self.assertContains(self.client.get(reverse("alert_list") + "?from=banana"), "not a date")

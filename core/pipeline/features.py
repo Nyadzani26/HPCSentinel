@@ -1,4 +1,4 @@
-"""Turning raw metric series into windows the detector can score (FR-08, FR-09, FR-10).
+"""Turning raw metric series into windows the detector can score (FR-09, FR-10, FR-11).
 
 All functions here are pure: they take pandas objects and return pandas objects, and
 touch neither the database nor Prometheus. This is what lets the live cycle and the
@@ -50,7 +50,7 @@ QUALITY_COL = "__quality"
 
 
 def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame:
-    """Features, load state and data quality for one node at each instant (FR-08, FR-09, FR-10).
+    """Features, load state and data quality for one node at each instant (FR-09, FR-10, FR-11).
 
     `frame` is on a regular one-minute grid, so a window of N minutes is N rows. The same
     function serves training, replay and the live cycle, which is what keeps them

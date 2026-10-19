@@ -3,9 +3,10 @@
 Views only read data, call a service and render. Changes to alerts go through
 ReviewService (BR-11); long work is requested by writing a Job for the worker (D-3).
 """
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import wraps
 
+from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
@@ -15,9 +16,12 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from core import forms
-from core.models import (Alert, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition, Job,
-                         ModelVersion, Node, NodeWindow)
+from core.config import ConfigError, load_config
+from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
+                         Job, ModelVersion, Node, NodeWindow, User)
 from core.pipeline.jobs import JobError, import_experiments
+from core.services import readiness as readiness_service
+from core.services import settings_store
 from core.services.review import PermissionDenied, ReviewService
 
 STALE_AFTER = timedelta(minutes=10)
@@ -91,15 +95,22 @@ def node_detail(request, name):
     features = {}
     if latest is not None:
         features = {k: v for k, v in sorted(latest.features.items()) if k.endswith("__mean_15")}
+    series = {}
+    for w in windows:  # one chart per metric, from the stored 5-minute means (FR-21)
+        for key, value in w.features.items():
+            if key.endswith("__mean_5"):
+                series.setdefault(key[:-len("__mean_5")], []).append({"t": w.window_end.isoformat(), "v": value})
+    alerts = Alert.objects.filter(node=node, mode="LIVE").order_by("-opened_at")
+    markers = [a.opened_at.isoformat() for a in alerts if windows and a.opened_at >= windows[0].window_end]
     return render(request, "node_detail.html", {
         "node": node, "latest": latest, "chart": chart, "threshold": threshold, "features": features,
-        "alerts": Alert.objects.filter(node=node).order_by("-opened_at")[:20],
+        "alerts": alerts[:20], "series": series, "markers": markers,
     })
 
 
 @login_required
 def alert_list(request):
-    """S-04 alerts, newest first, with a status filter."""
+    """S-04 alerts, newest first, filtered by status, node and time range (FR-22)."""
     status = request.GET.get("status", "live")
     qs = Alert.objects.filter(mode="LIVE").select_related("node")
     if status == "live":
@@ -108,8 +119,22 @@ def alert_list(request):
         qs = qs.filter(status=status)
     elif status != "all":
         status = "live"
+    node = request.GET.get("node", "").strip()
+    if node:
+        qs = qs.filter(node__name__icontains=node)
+    errors = []
+    for key, lookup in (("from", "opened_at__date__gte"), ("to", "opened_at__date__lte")):
+        value = request.GET.get(key, "").strip()
+        if value:
+            try:
+                qs = qs.filter(**{lookup: datetime.strptime(value, "%Y-%m-%d").date()})
+            except ValueError:
+                errors.append(f"'{value}' is not a date in the form YYYY-MM-DD.")
     filters = [("live", "Needs attention"), ("OPEN", "Open"), ("ACKNOWLEDGED", "Acknowledged"), ("CLOSED", "Closed"), ("all", "All")]
-    return render(request, "alert_list.html", {"alerts": qs.order_by("-opened_at")[:200], "status": status, "filters": filters})
+    return render(request, "alert_list.html", {
+        "alerts": qs.order_by("-opened_at")[:200], "status": status, "filters": filters, "node": node,
+        "date_from": request.GET.get("from", ""), "date_to": request.GET.get("to", ""), "errors": errors,
+    })
 
 
 @login_required
@@ -181,8 +206,43 @@ def controls(request):
     forms_ = {"train": forms.TrainForm(), "replay": forms.ModelPeriodForm(prefix="replay"),
               "evaluate": forms.ModelPeriodForm(prefix="eval"), "excluded": forms.ExcludedPeriodForm(),
               "upload": forms.ExperimentUploadForm()}
+    try:
+        base_cfg = _file_config()
+    except ConfigError as exc:
+        messages.error(request, f"The configuration file cannot be used: {exc}")
+        return redirect("home")
+    cfg = settings_store.effective_config(base_cfg)
+    forms_["settings"] = forms.SettingsForm(initial={
+        "prometheus_url": cfg["prometheus"]["url"], "alert_threshold": cfg["detection"]["alert_threshold"],
+        "persistence_windows": cfg["detection"]["persistence_windows"]})
+    readiness = None
     if request.method == "POST":
         action = request.POST.get("action")
+        if action == "settings":
+            form = forms_["settings"] = forms.SettingsForm(request.POST)
+            if form.is_valid():
+                d = form.cleaned_data
+                try:
+                    settings_store.save(request.user, url=d["prometheus_url"], threshold=d["alert_threshold"],
+                                        persistence=d["persistence_windows"])
+                except settings_store.SettingError as exc:
+                    form.add_error(None, str(exc))
+                else:
+                    messages.success(request, "Settings saved. The worker applies them at its next cycle.")
+                    return redirect("controls")
+        elif action in ("test_connection", "readiness"):
+            url = request.POST.get("prometheus_url") or cfg["prometheus"]["url"]
+            try:
+                client = settings_store.make_client({**cfg, "prometheus": {**cfg["prometheus"], "url": url}})
+            except Exception as exc:  # noqa: BLE001 - shown to the administrator
+                messages.error(request, str(exc))
+            else:
+                if not client.is_reachable():
+                    messages.error(request, f"Prometheus did not answer at {url}.")
+                elif action == "test_connection":
+                    messages.success(request, f"Prometheus answered at {url}.")
+                else:
+                    readiness = readiness_service.check(cfg, client, Node.objects.filter(is_active=True).count())
         if action == "train":
             form = forms_["train"] = forms.TrainForm(request.POST)
             if form.is_valid():
@@ -217,9 +277,10 @@ def controls(request):
                     messages.error(request, "The file must be a UTF-8 text (CSV) file.")
                 except JobError as exc:
                     messages.error(request, str(exc))
-        else:
+        elif action not in ("settings", "test_connection", "readiness"):
             raise Http404
     return render(request, "controls.html", {
+        "readiness": readiness,
         **{f"{k}_form": v for k, v in forms_.items()},
         "jobs": Job.objects.order_by("-requested_at")[:10],
         "models": ModelVersion.objects.order_by("-trained_at")[:10],
@@ -235,3 +296,52 @@ def excluded_delete(request, pk):
     get_object_or_404(ExcludedPeriod, pk=pk).delete()
     messages.success(request, "Excluded period removed.")
     return redirect("controls")
+
+
+def _file_config():
+    return load_config(django_settings.HPCSENTINEL_CONFIG)
+
+
+# ---- users (Administrator only, FR-03) -------------------------------------------------------
+@administrator_required
+def users(request):
+    form = forms.UserCreateForm()
+    if request.method == "POST":
+        form = forms.UserCreateForm(request.POST)
+        if form.is_valid():
+            d = form.cleaned_data
+            User.objects.create_user(username=d["username"], password=d["password"], role=d["role"])
+            messages.success(request, f"User {d['username']} created.")
+            return redirect("users")
+    return render(request, "users.html", {"users": User.objects.exclude(username="system").order_by("username"), "form": form})
+
+
+@administrator_required
+@require_POST
+def user_update(request, pk):
+    target = get_object_or_404(User.objects.exclude(username="system"), pk=pk)
+    action = request.POST.get("action")
+    admins_left = User.objects.filter(role=User.Role.ADMINISTRATOR, is_active=True).exclude(pk=target.pk).count()
+    if action == "deactivate":
+        if target == request.user or (target.is_administrator and admins_left == 0):
+            messages.error(request, "You cannot deactivate yourself or the last active Administrator.")
+        else:
+            target.is_active = False
+            target.save(update_fields=["is_active"])
+            messages.success(request, f"{target.username} deactivated.")
+    elif action == "activate":
+        target.is_active = True
+        target.save(update_fields=["is_active"])
+        messages.success(request, f"{target.username} activated.")
+    elif action in ("OPERATOR", "ADMINISTRATOR"):
+        if action == "OPERATOR" and target.is_administrator and admins_left == 0:
+            messages.error(request, "There must be at least one active Administrator.")
+        elif target.is_superuser and action == "OPERATOR":
+            messages.error(request, "A superuser is always an Administrator.")
+        else:
+            target.role = action
+            target.save(update_fields=["role"])
+            messages.success(request, f"{target.username} is now {target.get_role_display()}.")
+    else:
+        raise Http404
+    return redirect("users")

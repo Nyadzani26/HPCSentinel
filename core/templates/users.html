@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Users · HPCSentinel{% endblock %}
+{% block content %}
+<h1>Users</h1>
+<table><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr>
+{% for u in users %}<tr><td>{{ u.username }}</td><td>{{ u.get_role_display }}</td><td>{% if u.is_active %}Active{% else %}Deactivated{% endif %}</td>
+<td><form method="post" action="{% url 'user_update' u.pk %}" class="inline">{% csrf_token %}
+ {% if u.role == "OPERATOR" %}<button class="secondary" name="action" value="ADMINISTRATOR">Make Administrator</button>
+ {% else %}<button class="secondary" name="action" value="OPERATOR">Make Operator</button>{% endif %}
+ {% if u.is_active %}<button class="secondary" name="action" value="deactivate">Deactivate</button>
+ {% else %}<button class="secondary" name="action" value="activate">Activate</button>{% endif %}
+</form></td></tr>{% endfor %}</table>
+<h2>Add a user</h2>
+<form method="post" class="stack card">{% csrf_token %}
+ {{ form.non_field_errors }}
+ <label>Username{{ form.username }}{{ form.username.errors }}</label>
+ <label>Password (at least 10 characters){{ form.password }}{{ form.password.errors }}</label>
+ <label>Role{{ form.role }}</label>
+ <button type="submit">Create user</button>
+</form>
+{% endblock %}

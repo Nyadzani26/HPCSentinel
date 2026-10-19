@@ -18,5 +18,7 @@ urlpatterns = [
     path("alerts/<int:pk>/reopen/", views.alert_reopen, name="alert_reopen"),
     path("alerts/<int:pk>/note/", views.alert_note, name="alert_note"),
     path("controls/", views.controls, name="controls"),
+    path("users/", views.users, name="users"),
+    path("users/<int:pk>/", views.user_update, name="user_update"),
     path("controls/excluded/<int:pk>/delete/", views.excluded_delete, name="excluded_delete"),
 ]

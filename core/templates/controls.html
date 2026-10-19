@@ -3,7 +3,30 @@
 {% block content %}
 <h1>Model and experiment controls</h1>
 <p class="muted">Training, replay and evaluation run in the worker, not in this page. Choose a period and the worker starts it within seconds.</p>
+<h2>Data source and detector settings</h2>
 <div class="row">
+ <div class="card">
+  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="settings">
+   {{ settings_form.non_field_errors }}
+   <label>Prometheus address{{ settings_form.prometheus_url }}{{ settings_form.prometheus_url.errors }}</label>
+   <label>Alert threshold (robust standard deviations){{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>
+   <label>Consecutive abnormal windows required{{ settings_form.persistence_windows }}{{ settings_form.persistence_windows.errors }}</label>
+   <button type="submit">Save settings</button>
+   <button type="submit" name="action" value="test_connection" class="secondary" formnovalidate>Test connection</button>
+  </form>
+  <p class="muted">The platform only reads from Prometheus. Changes apply at the worker's next cycle and are recorded as a new configuration version.</p>
+ </div>
+ <div class="card"><h3 style="margin-top:0">Data readiness</h3>
+  <p class="muted">Which configured metrics the connected server returns, and for how many nodes.</p>
+  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="secondary">Check now</button></form>
+ </div>
+</div>
+{% if readiness %}
+<table><tr><th>Metric</th><th>Group</th><th>Nodes with data</th><th>Status</th><th>Note</th></tr>
+{% for r in readiness %}<tr><td>{{ r.name }}</td><td>{{ r.group }}</td><td>{{ r.nodes }} of {{ r.expected }}</td><td>{{ r.status }}</td><td>{{ r.note }}</td></tr>{% endfor %}</table>
+{% endif %}
+
+<div class="row" style="margin-top:1.5rem">
  <div class="card"><h2 style="margin-top:0">Train a model</h2>
   <p class="muted">Learn baselines from a period believed to be normal. Excluded periods are left out.</p>
   <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="train">

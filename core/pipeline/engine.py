@@ -33,11 +33,11 @@ def row_to_entry(row: pd.Series) -> dict:
 
 def score_rows(detector: Detector | None, rows: dict[str, dict], groups: dict[str, str],
                model_values: dict[str, float] | None = None) -> dict[str, dict]:
-    """Score every reliable node of one instant (FR-11 to FR-15).
+    """Score every reliable node of one instant (FR-12 to FR-14).
 
     `model_values` holds precomputed model scores (replay computes them in batches).
     `result` stays None when the window is unreliable or the node has no baseline yet,
-    in which case the quality becomes NOT_LEARNED (FR-10, FR-11).
+    in which case the quality becomes NOT_LEARNED (FR-09, FR-12).
     """
     entries = {n: dict(e) for n, e in rows.items()}
     if detector is None:
@@ -63,7 +63,7 @@ def score_rows(detector: Detector | None, rows: dict[str, dict], groups: dict[st
 
 
 def record_window(cycle, node: Node, entry: dict, window_end, model_version) -> NodeWindow:
-    """Store the outcome of scoring one node in one cycle (FR-13, FR-14)."""
+    """Store the outcome of scoring one node in one cycle (FR-13, FR-14, FR-23)."""
     r = entry["result"]
     return NodeWindow(
         node=node, cycle=cycle, window_end=window_end, quality=entry["quality"], load_state=entry["state"],
@@ -75,7 +75,7 @@ def record_window(cycle, node: Node, entry: dict, window_end, model_version) -> 
 
 
 def explain(node: Node, group: str, entry: dict, threshold: float, persistence: int) -> dict:
-    """Build the explanation shown with an alert (FR-19, FR-20).
+    """Build the explanation shown with an alert (FR-19).
 
     It states the baseline, the observed value, the deviation, the load state and the
     metrics that contributed most, so an administrator can judge the alert without
@@ -118,7 +118,7 @@ def history_context(node: Node, now) -> dict:
 
 
 class AlertManager:
-    """Raises an alert only after N consecutive abnormal windows (BR-01, FR-17, FR-18)."""
+    """Raises an alert only after N consecutive abnormal windows (BR-01, FR-15)."""
 
     def __init__(self, cfg: dict, config_version: ConfigVersion, model_version: ModelVersion | None, mode: str):
         det = cfg["detection"]

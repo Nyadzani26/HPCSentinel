@@ -1,4 +1,4 @@
-"""Forms for the review and control screens. Validation lives here, not in the templates (FR-22, FR-26)."""
+"""Forms for the review and control screens. Validation lives here, not in the templates (FR-22, FR-24, FR-26)."""
 from django import forms
 
 from core.models import Alert, ExcludedPeriod, ModelVersion
@@ -67,3 +67,32 @@ class ExcludedPeriodForm(forms.ModelForm):
 
 class ExperimentUploadForm(forms.Form):
     file = forms.FileField(help_text="CSV with columns node, anomaly_type, start, end, intensity (optional).")
+
+
+class SettingsForm(forms.Form):
+    prometheus_url = forms.CharField(label="Prometheus address", max_length=200)
+    alert_threshold = forms.FloatField(label="Alert threshold", min_value=0.1, max_value=100)
+    persistence_windows = forms.IntegerField(label="Consecutive abnormal windows required", min_value=1, max_value=20)
+
+
+class UserCreateForm(forms.Form):
+    username = forms.CharField(max_length=150)
+    password = forms.CharField(widget=forms.PasswordInput)
+    role = forms.ChoiceField(choices=[("OPERATOR", "Operator"), ("ADMINISTRATOR", "Administrator")])
+
+    def clean_username(self):
+        from core.models import User
+        name = self.cleaned_data["username"].strip()
+        if User.objects.filter(username__iexact=name).exists():
+            raise forms.ValidationError("That username is already in use.")
+        return name
+
+    def clean(self):
+        data = super().clean()
+        if data.get("password"):
+            from django.contrib.auth.password_validation import validate_password
+            try:
+                validate_password(data["password"])
+            except forms.ValidationError as exc:
+                self.add_error("password", exc)
+        return data

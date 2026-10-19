@@ -1,4 +1,4 @@
-"""The detector: baselines, peer comparison and Isolation Forest (FR-11 to FR-15).
+"""The detector: baselines, peer comparison and Isolation Forest (FR-12 to FR-14).
 
 Three independent views of a node's current window are combined into one score:
 

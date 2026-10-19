@@ -49,6 +49,22 @@ class ConfigVersion(models.Model):
         return f"Configuration v{self.version_no}"
 
 
+class PlatformSetting(models.Model):
+    """A setting an Administrator changes in the web interface (FR-04, FR-18, FR-27).
+
+    Settings override the configuration file, are validated before saving, and record
+    who changed them. The effective configuration is versioned like any other (BR-10).
+    """
+
+    key = models.CharField(max_length=50, unique=True)
+    value = models.JSONField()
+    updated_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="settings_changed")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.key
+
+
 class NodeGroup(models.Model):
     """A group of comparable nodes; peers are compared only within a group (FR-07)."""
 

@@ -1,4 +1,4 @@
-"""The detection pipeline end to end on synthetic metrics (FR-08 to FR-20, BR-01 to BR-03, NFR-08)."""
+"""The detection pipeline end to end on synthetic metrics (FR-09 to FR-19, BR-01 to BR-03, NFR-08)."""
 import tempfile
 from datetime import timedelta
 from pathlib import Path
@@ -40,7 +40,7 @@ class FeatureTests(TestCase):
             frame.loc[idx[gap[0]]:idx[gap[1]], :] = float("nan")
         return frame
 
-    def test_idle_and_loaded_states(self):  # FR-08, BR-09
+    def test_idle_and_loaded_states(self):  # FR-11, BR-09
         cfg = config()
         frame = self.frame()
         frame.loc[frame.index[60]:, "cpu_busy"] = 0.9
@@ -55,12 +55,12 @@ class FeatureTests(TestCase):
         self.assertEqual(table[feat.STATE_COL].iloc[110], "TRANSITION")
         self.assertEqual(table[feat.QUALITY_COL].iloc[110], "UNRELIABLE")
 
-    def test_window_features_are_named_by_span(self):  # FR-09
+    def test_window_features_are_named_by_span(self):  # FR-10
         table = feat.feature_table(self.frame(), config())
         for name in ("cpu_busy__mean_5", "cpu_busy__mean_15", "cpu_busy__mean_60", "cpu_busy__std_15"):
             self.assertIn(name, table.columns)
 
-    def test_missing_data_makes_a_window_unreliable(self):  # FR-10, BR-02
+    def test_missing_data_makes_a_window_unreliable(self):  # FR-09, BR-02
         table = feat.feature_table(self.frame(gap=(100, 130)), config())
         self.assertEqual(table[feat.QUALITY_COL].iloc[95], "RELIABLE")
         self.assertEqual(table[feat.QUALITY_COL].iloc[131], "UNRELIABLE")
@@ -101,7 +101,7 @@ class PipelineTests(TestCase):
         with self.assertRaises(JobError):
             jobs.train(self.cfg, self.prom, T0 + timedelta(days=1), T0)
 
-    def test_replay_detects_an_injected_fault_with_an_explanation(self):  # FR-17..FR-20
+    def test_replay_detects_an_injected_fault_with_an_explanation(self):  # FR-15, FR-19
         model = self.trained()
         day3 = T0 + timedelta(days=2)
         jobs.replay(self.cfg, self.prom, model, day3, day3 + timedelta(hours=16), stride_minutes=2)
@@ -132,6 +132,43 @@ class PipelineTests(TestCase):
         self.assertLess(ev.median_delay_seconds, 15 * 60)
         self.assertEqual(ev.false_alerts_per_node_week, 0)
 
+    def test_two_replays_of_the_same_period_give_the_same_alerts(self):  # NFR-11
+        model = self.trained()
+        day3 = T0 + timedelta(days=2)
+        runs = []
+        for _ in range(2):
+            jobs.replay(self.cfg, self.prom, model, day3 + timedelta(hours=9), day3 + timedelta(hours=14), stride_minutes=2)
+            runs.append(sorted((a.node.name, a.opened_at, round(a.peak_score, 9)) for a in Alert.objects.filter(mode=Alert.Mode.REPLAY)))
+        self.assertTrue(runs[0])
+        self.assertEqual(runs[0], runs[1])
+
+    def test_scheduled_relearning_builds_a_new_model_from_recent_data(self):  # FR-17
+        cfg = config(relearn_days=1)
+        now = T0 + timedelta(days=3)
+        model = jobs.relearn(cfg, self.prom, now=now)
+        self.assertTrue(model.label.startswith("auto-"))
+        self.assertEqual(model.train_end, now)
+        self.assertEqual(model.train_end - model.train_start, timedelta(days=1))
+
+    def test_relearning_leaves_out_alerts_that_are_not_false_alarms(self):  # FR-17, BR-03
+        from core.services.config_store import ensure_config_version
+        from core.tests.helpers import make_model
+        cfg = config(relearn_days=1)
+        now = T0 + timedelta(days=3)
+        cv = ensure_config_version(cfg)
+        node = Node.objects.get(name="compute03")
+        Alert.objects.create(node=node, mode="LIVE", opened_at=now - timedelta(hours=10), peak_score=5.0,
+                             explanation={}, model=make_model(cv), config=cv)
+        captured = {}
+        original = jobs._drop_excluded
+        jobs._drop_excluded = lambda frame, extra=(): (captured.setdefault("extra", list(extra)), original(frame, extra))[1]
+        try:
+            jobs.relearn(cfg, self.prom, now=now)
+        finally:
+            jobs._drop_excluded = original
+        self.assertEqual(len(captured["extra"]), 1)
+        self.assertEqual(captured["extra"][0][0], now - timedelta(hours=11))
+
     def test_excluded_periods_are_not_learned_from(self):  # FR-16, BR-03
         ExcludedPeriod.objects.create(start_at=T0 + timedelta(hours=5), end_at=T0 + timedelta(hours=8),
                                       reason="benchmark", created_by=self.user)
@@ -141,7 +178,7 @@ class PipelineTests(TestCase):
         self.assertFalse(((kept.index > pd.Timestamp(T0 + timedelta(hours=5))) &
                           (kept.index <= pd.Timestamp(T0 + timedelta(hours=9)))).any())
 
-    def test_live_cycle_before_training_marks_nodes_not_learned(self):  # FR-11
+    def test_live_cycle_before_training_marks_nodes_not_learned(self):  # FR-12
         from django.utils import timezone
         client = SyntheticClient(self.cfg, n_nodes=8)
         client.query_range = lambda q, s, e, step, label="instance": SyntheticClient.query_range(
