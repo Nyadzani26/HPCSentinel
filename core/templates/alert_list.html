@@ -1,26 +1,38 @@
 {% extends "base.html" %}
+{% load sentinel %}
 {% block title %}Alerts · HPCSentinel{% endblock %}
 {% block content %}
-<h1>Alerts</h1>
-<p>
-  {% for key, label in filters %}<a class="btn {% if status != key %}secondary{% endif %}" href="?status={{ key }}">{{ label }}</a> {% endfor %}
-</p>
-<form method="get" class="card" style="display:flex;gap:1rem;flex-wrap:wrap;align-items:end;margin-bottom:1rem">
+<div class="head"><div><h1>Alerts</h1><p class="muted">Review each alert, then close it as a real fault or a false alarm. Your answers build the record of what the platform gets right.</p></div></div>
+<div class="toolbar">
+  <div class="chips" role="group" aria-label="Filter by status">
+    {% for key, label in filters %}<a class="chip {% if status == key %}on{% endif %}" href="?status={{ key }}{% if node %}&node={{ node|urlencode }}{% endif %}{% if date_from %}&from={{ date_from }}{% endif %}{% if date_to %}&to={{ date_to }}{% endif %}">{{ label }}</a>{% endfor %}
+  </div>
+</div>
+<form method="get" class="toolbar" aria-label="Filter alerts">
   <input type="hidden" name="status" value="{{ status }}">
-  <label>Node<input name="node" value="{{ node }}" style="width:10rem"></label>
-  <label>From<input type="date" name="from" value="{{ date_from }}" style="width:10rem"></label>
-  <label>To<input type="date" name="to" value="{{ date_to }}" style="width:10rem"></label>
-  <button type="submit">Filter</button>
+  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">Node <input name="node" value="{{ node }}" placeholder="e.g. compute03" style="width:11rem;margin:0"></label>
+  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">From <input type="date" name="from" value="{{ date_from }}" style="width:10.5rem;margin:0"></label>
+  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">To <input type="date" name="to" value="{{ date_to }}" style="width:10.5rem;margin:0"></label>
+  <button type="submit" class="btn secondary small">Apply</button>
 </form>
 {% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
 {% if alerts %}
+<div class="card flush">
 <table>
-  <tr><th>Opened (UTC)</th><th>Node</th><th>Status</th><th>Outcome</th><th>Peak score</th><th>Summary</th><th></th></tr>
+  <thead><tr><th>Status</th><th>What happened</th><th>Opened</th><th>Outcome</th></tr></thead>
+  <tbody>
   {% for a in alerts %}
-  <tr><td>{{ a.opened_at|date:"Y-m-d H:i" }}</td><td><a href="{% url 'node_detail' a.node.name %}">{{ a.node.name }}</a></td>
-    <td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td><td>{{ a.get_outcome_display|default:"–" }}</td>
-    <td>{{ a.peak_score|floatformat:2 }}</td><td>{{ a.explanation.summary }}</td><td><a href="{% url 'alert_detail' a.pk %}">Review</a></td></tr>
+  <tr class="link">
+    <td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
+    <td><a href="{% url 'alert_detail' a.pk %}"><strong>{% alert_headline a %}</strong></a></td>
+    <td title="{{ a.opened_at|date:'Y-m-d H:i' }} UTC">{{ a.opened_at|ago }}</td>
+    <td>{% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>{% else %}<span class="muted">–</span>{% endif %}</td>
+  </tr>
   {% endfor %}
-</table>
-{% else %}<p class="muted">No alerts match this filter.</p>{% endif %}
+  </tbody>
+</table></div>
+{% else %}
+<div class="card empty"><strong>{% if status == "live" %}Nothing needs attention{% else %}No alerts match{% endif %}</strong>
+  {% if status == "live" %}When a node behaves unusually for several checks in a row, an alert appears here.{% else %}Try a different status or clear the filters.{% endif %}</div>
+{% endif %}
 {% endblock %}

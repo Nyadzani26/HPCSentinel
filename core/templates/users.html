@@ -1,21 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Users · HPCSentinel{% endblock %}
 {% block content %}
-<h1>Users</h1>
-<table><tr><th>Username</th><th>Role</th><th>Status</th><th>Actions</th></tr>
-{% for u in users %}<tr><td>{{ u.username }}</td><td>{{ u.get_role_display }}</td><td>{% if u.is_active %}Active{% else %}Deactivated{% endif %}</td>
-<td><form method="post" action="{% url 'user_update' u.pk %}" class="inline">{% csrf_token %}
- {% if u.role == "OPERATOR" %}<button class="secondary" name="action" value="ADMINISTRATOR">Make Administrator</button>
- {% else %}<button class="secondary" name="action" value="OPERATOR">Make Operator</button>{% endif %}
- {% if u.is_active %}<button class="secondary" name="action" value="deactivate">Deactivate</button>
- {% else %}<button class="secondary" name="action" value="activate">Activate</button>{% endif %}
-</form></td></tr>{% endfor %}</table>
-<h2>Add a user</h2>
-<form method="post" class="stack card">{% csrf_token %}
- {{ form.non_field_errors }}
- <label>Username{{ form.username }}{{ form.username.errors }}</label>
- <label>Password (at least 10 characters){{ form.password }}{{ form.password.errors }}</label>
- <label>Role{{ form.role }}</label>
- <button type="submit">Create user</button>
-</form>
+<div class="head"><div><h1>Users</h1><p class="muted">Administrators manage settings, models and users. Operators review alerts.</p></div></div>
+<div class="card flush">
+<table>
+  <thead><tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead>
+  <tbody>
+  {% for u in users %}<tr>
+    <td><strong>{{ u.username }}</strong>{% if u == user %} <span class="muted small">(you)</span>{% endif %}</td>
+    <td>{{ u.get_role_display }}</td>
+    <td>{% if u.is_active %}<span class="pill normal">Active</span>{% else %}<span class="pill unknown">Deactivated</span>{% endif %}</td>
+    <td style="text-align:right">
+      <form method="post" action="{% url 'user_update' u.pk %}" class="inline">{% csrf_token %}
+        {% if u.role == "OPERATOR" %}<button class="btn secondary small" name="action" value="ADMINISTRATOR">Make Administrator</button>
+        {% else %}<button class="btn secondary small" name="action" value="OPERATOR">Make Operator</button>{% endif %}
+        {% if u.is_active %}<button class="btn secondary small" name="action" value="deactivate" onclick="return confirm('Deactivate {{ u.username|escapejs }}? They will no longer be able to sign in.')">Deactivate</button>
+        {% else %}<button class="btn secondary small" name="action" value="activate">Activate</button>{% endif %}
+      </form></td>
+  </tr>{% endfor %}
+  </tbody>
+</table></div>
+<section>
+  <h2>Add a user</h2>
+  <form method="post" class="card form" style="max-width:32rem">{% csrf_token %}
+    {{ form.non_field_errors }}
+    <label for="id_username">Username{{ form.username }}{{ form.username.errors }}</label>
+    <label for="id_password">Password<span class="hint">At least 10 characters, not a common password.</span>{{ form.password }}{{ form.password.errors }}</label>
+    <label for="id_role">Role{{ form.role }}</label>
+    <button type="submit" class="btn">Create user</button>
+  </form>
+</section>
 {% endblock %}

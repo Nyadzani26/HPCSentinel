@@ -1,94 +1,144 @@
 {% extends "base.html" %}
-{% block title %}Controls · HPCSentinel{% endblock %}
+{% load sentinel %}
+{% block title %}Settings and models · HPCSentinel{% endblock %}
 {% block content %}
-<h1>Model and experiment controls</h1>
-<p class="muted">Training, replay and evaluation run in the worker, not in this page. Choose a period and the worker starts it within seconds.</p>
-<h2>Data source and detector settings</h2>
-<div class="row">
- <div class="card">
-  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="settings">
-   {{ settings_form.non_field_errors }}
-   <label>Prometheus address{{ settings_form.prometheus_url }}{{ settings_form.prometheus_url.errors }}</label>
-   <label>Alert threshold (robust standard deviations){{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>
-   <label>Consecutive abnormal windows required{{ settings_form.persistence_windows }}{{ settings_form.persistence_windows.errors }}</label>
-   <button type="submit">Save settings</button>
-   <button type="submit" name="action" value="test_connection" class="secondary" formnovalidate>Test connection</button>
-  </form>
-  <p class="muted">The platform only reads from Prometheus. Changes apply at the worker's next cycle and are recorded as a new configuration version.</p>
- </div>
- <div class="card"><h3 style="margin-top:0">Data readiness</h3>
-  <p class="muted">Which configured metrics the connected server returns, and for how many nodes.</p>
-  <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="secondary">Check now</button></form>
- </div>
-</div>
-{% if readiness %}
-<table><tr><th>Metric</th><th>Group</th><th>Nodes with data</th><th>Status</th><th>Note</th></tr>
-{% for r in readiness %}<tr><td>{{ r.name }}</td><td>{{ r.group }}</td><td>{{ r.nodes }} of {{ r.expected }}</td><td>{{ r.status }}</td><td>{{ r.note }}</td></tr>{% endfor %}</table>
-{% endif %}
+<div class="head"><div><h1>Settings and models</h1><p class="muted">Connect your data, teach the platform what normal looks like, and check how well it detects problems.</p></div></div>
 
-<div class="row" style="margin-top:1.5rem">
- <div class="card"><h2 style="margin-top:0">Train a model</h2>
-  <p class="muted">Learn baselines from a period believed to be normal. Excluded periods are left out.</p>
-  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="train">
-   {{ train_form.non_field_errors }}
-   <label>Start (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
-   <label>End (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
-   <label>Label (optional){{ train_form.label }}</label>
-   <button type="submit">Request training</button></form></div>
- <div class="card"><h2 style="margin-top:0">Replay a past period</h2>
-  <p class="muted">Run the live detection over history with a chosen model. Use a period the model was not trained on.</p>
-  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="replay">
-   {{ replay_form.non_field_errors }}
-   <label>Model{{ replay_form.model }}{{ replay_form.model.errors }}</label>
-   <label>Start (UTC){{ replay_form.start }}{{ replay_form.start.errors }}</label>
-   <label>End (UTC){{ replay_form.end }}{{ replay_form.end.errors }}</label>
-   <button type="submit">Request replay</button></form></div>
- <div class="card"><h2 style="margin-top:0">Evaluate</h2>
-  <p class="muted">Compare replayed alerts with the experiment log.</p>
-  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="evaluate">
-   {{ evaluate_form.non_field_errors }}
-   <label>Model{{ evaluate_form.model }}{{ evaluate_form.model.errors }}</label>
-   <label>Start (UTC){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
-   <label>End (UTC){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
-   <button type="submit">Request evaluation</button></form></div>
+<div class="tabs" role="tablist" id="tabs">
+  <button role="tab" data-tab="source" aria-selected="true">Data and alerts</button>
+  <button role="tab" data-tab="models" aria-selected="false">Models</button>
+  <button role="tab" data-tab="testing" aria-selected="false">Testing</button>
+  <button role="tab" data-tab="excluded" aria-selected="false">Periods to ignore</button>
 </div>
 
-<h2>Jobs</h2>
-<table><tr><th>#</th><th>Type</th><th>Status</th><th>Requested</th><th>Result</th></tr>
-{% for j in jobs %}<tr><td>{{ j.pk }}</td><td>{{ j.get_type_display }}</td><td>{{ j.get_status_display }}</td><td>{{ j.requested_at|date:"Y-m-d H:i" }}</td><td>{{ j.message }}</td></tr>
-{% empty %}<tr><td colspan="5" class="muted">No jobs yet.</td></tr>{% endfor %}</table>
-
-<h2>Models</h2>
-<table><tr><th>Label</th><th>Trained</th><th>Learned from</th><th>Nodes</th></tr>
-{% for m in models %}<tr><td>{{ m.label }}</td><td>{{ m.trained_at|date:"Y-m-d H:i" }}</td><td>{{ m.train_start|date:"Y-m-d H:i" }} – {{ m.train_end|date:"Y-m-d H:i" }}</td><td>{{ m.baselines.nodes }}</td></tr>
-{% empty %}<tr><td colspan="4" class="muted">No model has been trained.</td></tr>{% endfor %}</table>
-
-<h2>Evaluation results</h2>
-<table><tr><th>Model</th><th>Period</th><th>Episodes detected</th><th>Median delay</th><th>False alerts / node / week</th></tr>
-{% for e in evaluations %}<tr><td>{{ e.model.label }}</td><td>{{ e.period_start|date:"Y-m-d H:i" }} – {{ e.period_end|date:"Y-m-d H:i" }}</td>
-<td>{{ e.episodes_detected }} of {{ e.episodes_total }}</td><td>{% if e.median_delay_seconds is None %}–{% else %}{{ e.median_delay_seconds|floatformat:0 }} s{% endif %}</td>
-<td>{{ e.false_alerts_per_node_week|floatformat:2 }}</td></tr>
-{% empty %}<tr><td colspan="5" class="muted">No evaluations yet.</td></tr>{% endfor %}</table>
-
-<div class="row">
- <div><h2>Excluded periods</h2>
-  <p class="muted">Time that must never be learned from, such as a benchmark or an injected test.</p>
-  <table><tr><th>From (UTC)</th><th>To (UTC)</th><th>Reason</th><th></th></tr>
-  {% for p in periods %}<tr><td>{{ p.start_at|date:"Y-m-d H:i" }}</td><td>{{ p.end_at|date:"Y-m-d H:i" }}</td><td>{{ p.reason }}</td>
-   <td><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="secondary" type="submit">Remove</button></form></td></tr>
-  {% empty %}<tr><td colspan="4" class="muted">None.</td></tr>{% endfor %}</table>
-  <form method="post" class="stack card" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="excluded">
-   {{ excluded_form.non_field_errors }}
-   <label>From (UTC){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
-   <label>To (UTC){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
-   <label>Reason{{ excluded_form.reason }}{{ excluded_form.reason.errors }}</label>
-   <button type="submit">Add excluded period</button></form></div>
- <div><h2>Experiment log</h2>
-  <p class="muted">Injected anomalies used as ground truth when evaluating. Upload a CSV; an invalid row rejects the whole file.</p>
-  <table><tr><th>Node</th><th>Type</th><th>From (UTC)</th><th>To (UTC)</th></tr>
-  {% for x in experiments %}<tr><td>{{ x.node.name }}</td><td>{{ x.get_anomaly_type_display }}</td><td>{{ x.start_at|date:"Y-m-d H:i" }}</td><td>{{ x.end_at|date:"Y-m-d H:i" }}</td></tr>
-  {% empty %}<tr><td colspan="4" class="muted">No entries.</td></tr>{% endfor %}</table>
-  <form method="post" enctype="multipart/form-data" class="stack card" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="upload">
-   {{ upload_form.file }}{{ upload_form.file.errors }}<button type="submit">Import log</button></form></div>
+<div data-panel="source">
+  <div class="grid2">
+    <div class="card">
+      <h2>Prometheus and alert rules</h2>
+      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="settings">
+        {{ settings_form.non_field_errors }}
+        <label for="id_prometheus_url">Prometheus address<span class="hint">Where the platform reads metrics. It only ever reads; it never changes anything.</span>{{ settings_form.prometheus_url }}{{ settings_form.prometheus_url.errors }}</label>
+        <label for="id_alert_threshold">Alert level<span class="hint">How unusual a node must be to count. Lower finds more problems but raises more false alarms. 3 is a good start.</span>{{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>
+        <label for="id_persistence_windows">Checks in a row before alerting<span class="hint">One check every two minutes. 3 means a node must stay unusual for about six minutes.</span>{{ settings_form.persistence_windows }}{{ settings_form.persistence_windows.errors }}</label>
+        <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+          <button type="submit" class="btn">Save changes</button>
+          <button type="submit" name="action" value="test_connection" class="btn secondary" formnovalidate>Test connection</button>
+        </div>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Is the data good enough?</h2>
+      <p class="muted">Checks that Prometheus has each metric for every node, and warns when every node reports the same value, which usually means it is not measured per node.</p>
+      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="btn secondary">Check data now</button></form>
+    </div>
+  </div>
+  {% if readiness %}
+  <section><h2>Data check</h2>
+  <div class="card flush"><table>
+    <thead><tr><th>Metric</th><th>Nodes with data</th><th>Result</th><th>What to do</th></tr></thead>
+    <tbody>{% for r in readiness %}<tr><td>{{ r.name|metric_label }}<div class="muted small">{{ r.name }}</div></td><td>{{ r.nodes }} of {{ r.expected }}</td>
+      <td><span class="pill {% if r.status == 'Present' %}normal{% elif r.status == 'Partial' or r.status == 'Suspect' %}review{% else %}unusual{% endif %}">{{ r.status }}</span></td>
+      <td>{{ r.note|default:"" }}{% if r.status == "Missing" %}Not available. This metric is skipped.{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div></section>
+  {% endif %}
 </div>
+
+<div data-panel="models" hidden>
+  <div class="grid2">
+    <div class="card">
+      <h2>Train a model</h2>
+      <p class="muted">Pick a period when the cluster was healthy. The platform learns what normal looks like for each node, separately when idle and when busy. Periods you ignore are left out. It also re-learns on its own every week.</p>
+      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
+        {{ train_form.non_field_errors }}
+        <label for="id_start">From (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
+        <label for="id_end">To (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
+        <label for="id_label">Name<span class="hint">Optional, for example “after-upgrade”.</span>{{ train_form.label }}</label>
+        <button type="submit" class="btn">Train model</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Trained models</h2>
+      {% if models %}
+      <table><thead><tr><th>Name</th><th>Trained</th><th>Learned from</th></tr></thead><tbody>
+      {% for m in models %}<tr><td><strong>{{ m.label }}</strong><div class="muted small">{{ m.baselines.nodes }} nodes</div></td><td>{{ m.trained_at|ago }}</td><td class="small">{{ m.train_start|date:"j M" }} – {{ m.train_end|date:"j M Y" }}</td></tr>{% endfor %}
+      </tbody></table>
+      <p class="muted small" style="margin-top:.6rem">The newest model is the one in use.</p>
+      {% else %}<div class="empty"><strong>No model yet</strong>Train one to start monitoring.</div>{% endif %}
+    </div>
+  </div>
+  <section><h2>Background jobs</h2>
+  <div class="card flush"><table>
+    <thead><tr><th>Job</th><th>Status</th><th>Requested</th><th>Result</th></tr></thead>
+    <tbody>{% for j in jobs %}<tr><td>{{ j.get_type_display }}</td><td><span class="pill {{ j.status }}">{{ j.get_status_display }}</span></td><td>{{ j.requested_at|ago }}</td><td>{{ j.message|default:"–" }}</td></tr>
+    {% empty %}<tr><td colspan="4" class="muted">Nothing has been requested yet.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  <p class="muted small" style="margin-top:.5rem">Jobs run in the background; this list updates by itself while one is running.</p></section>
+</div>
+
+<div data-panel="testing" hidden>
+  <p class="muted" style="max-width:48rem">To find out how well detection works, replay a past period through the same code that watches the cluster live, then compare the alerts it raises with the problems you caused on purpose. Use a period the model was not trained on.</p>
+  <div class="grid2">
+    <div class="card"><h2>1. Replay a period</h2>
+      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="replay">
+        {{ replay_form.non_field_errors }}
+        <label for="id_replay-model">Model{{ replay_form.model }}{{ replay_form.model.errors }}</label>
+        <label for="id_replay-start">From (UTC){{ replay_form.start }}{{ replay_form.start.errors }}</label>
+        <label for="id_replay-end">To (UTC){{ replay_form.end }}{{ replay_form.end.errors }}</label>
+        <button type="submit" class="btn">Replay</button></form></div>
+    <div class="card"><h2>2. Log the problems you caused</h2>
+      <p class="muted small">Upload a CSV with the columns <code>node, anomaly_type, start, end</code> and optionally <code>intensity</code>. Types: cpu, memory, io, network, other. A bad row rejects the whole file.</p>
+      <form method="post" enctype="multipart/form-data" class="form">{% csrf_token %}<input type="hidden" name="action" value="upload">
+        {{ upload_form.file }}{{ upload_form.file.errors }}<button type="submit" class="btn secondary">Import log</button></form>
+      {% if experiments %}<p class="small muted" style="margin-top:.7rem">{{ experiments|length }} most recent entries:</p>
+      <table><tbody>{% for x in experiments %}<tr><td>{{ x.node.name }}</td><td>{{ x.get_anomaly_type_display }}</td><td class="small">{{ x.start_at|date:"j M H:i" }}–{{ x.end_at|date:"H:i" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</div>
+    <div class="card"><h2>3. Evaluate</h2>
+      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="evaluate">
+        {{ evaluate_form.non_field_errors }}
+        <label for="id_eval-model">Model{{ evaluate_form.model }}{{ evaluate_form.model.errors }}</label>
+        <label for="id_eval-start">From (UTC){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
+        <label for="id_eval-end">To (UTC){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
+        <button type="submit" class="btn">Evaluate</button></form></div>
+  </div>
+  <section><h2>Results</h2>
+  <div class="card flush"><table>
+    <thead><tr><th>Model</th><th>Period</th><th class="num">Problems found</th><th class="num">Median time to alert</th><th class="num">False alerts per node per week</th></tr></thead>
+    <tbody>{% for e in evaluations %}<tr><td>{{ e.model.label }}</td><td class="small">{{ e.period_start|date:"j M H:i" }} – {{ e.period_end|date:"j M H:i" }}</td>
+      <td class="num"><strong>{{ e.episodes_detected }} of {{ e.episodes_total }}</strong></td>
+      <td class="num">{% if e.median_delay_seconds is None %}–{% else %}{{ e.median_delay_seconds|floatformat:0 }} s{% endif %}</td><td class="num">{{ e.false_alerts_per_node_week|floatformat:2 }}</td></tr>
+    {% empty %}<tr><td colspan="5" class="muted">No evaluation yet.</td></tr>{% endfor %}</tbody>
+  </table></div></section>
+</div>
+
+<div data-panel="excluded" hidden>
+  <p class="muted" style="max-width:48rem">Benchmarks, stress tests and maintenance make nodes look unusual on purpose. Mark those times and the platform will not learn from them.</p>
+  <div class="grid2">
+    <div class="card"><h2>Ignore a period</h2>
+      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="excluded">
+        {{ excluded_form.non_field_errors }}
+        <label for="id_start_at">From (UTC){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
+        <label for="id_end_at">To (UTC){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
+        <label for="id_reason">Reason{{ excluded_form.reason }}{{ excluded_form.reason.errors }}</label>
+        <button type="submit" class="btn">Ignore this period</button></form></div>
+    <div class="card"><h2>Ignored periods</h2>
+      {% if periods %}<table><thead><tr><th>Period (UTC)</th><th>Reason</th><th></th></tr></thead><tbody>
+      {% for p in periods %}<tr><td class="small">{{ p.start_at|date:"j M H:i" }} – {{ p.end_at|date:"j M H:i" }}</td><td>{{ p.reason }}</td>
+        <td style="text-align:right"><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="btn secondary small" type="submit">Remove</button></form></td></tr>{% endfor %}
+      </tbody></table>{% else %}<div class="empty"><strong>None yet</strong>Add a period before you run stress tests.</div>{% endif %}</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var tabs = document.querySelectorAll('#tabs button'), panels = document.querySelectorAll('[data-panel]');
+  function show(name) {
+    tabs.forEach(function (t) { t.setAttribute('aria-selected', t.dataset.tab === name); });
+    panels.forEach(function (p) { p.hidden = p.dataset.panel !== name; });
+    try { history.replaceState(null, '', '#' + name); } catch (e) {}
+  }
+  tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); }); });
+  var want = '{{ active_tab }}', hash = location.hash.slice(1);
+  show(want !== 'source' ? want : (document.querySelector('[data-tab="' + hash + '"]') ? hash : 'source'));
+  {% if autorefresh %}setTimeout(function () { if (!document.querySelector('input:focus, textarea:focus, select:focus')) location.reload(); }, 8000);{% endif %}
+})();
+</script>
 {% endblock %}

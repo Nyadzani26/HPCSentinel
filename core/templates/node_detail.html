@@ -1,88 +1,85 @@
 {% extends "base.html" %}
+{% load sentinel %}
 {% block title %}{{ node.name }} · HPCSentinel{% endblock %}
 {% block content %}
-<p><a href="{% url 'home' %}">&larr; Fleet</a></p>
-<h1>{{ node.name }}</h1>
-{% if latest %}
-<div class="summary">
-  <div class="card"><strong>{{ latest.get_load_state_display|default:"–" }}</strong>Load state</div>
-  <div class="card"><strong>{{ latest.get_quality_display }}</strong>Data quality</div>
-  <div class="card"><strong>{% if latest.combined_score is not None %}{{ latest.combined_score|floatformat:2 }}{% else %}–{% endif %}</strong>Combined score</div>
-  <div class="card"><strong>{% if latest.baseline_score is not None %}{{ latest.baseline_score|floatformat:2 }}{% else %}–{% endif %}</strong>vs own baseline</div>
-  <div class="card"><strong>{% if latest.peer_score is not None %}{{ latest.peer_score|floatformat:2 }}{% else %}–{% endif %}</strong>vs peers</div>
-  <div class="card"><strong>{% if latest.model_score is not None %}{{ latest.model_score|floatformat:2 }}{% else %}–{% endif %}</strong>Model</div>
+<div class="crumbs"><a href="{% url 'home' %}">Overview</a> / {{ node.name }}</div>
+<div class="head">
+  <div>
+    <h1 style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">{{ node.name }} <span class="pill {{ state_css }}">{{ state_label }}</span></h1>
+    <p class="muted">
+      {% if latest %}Checked {{ latest.window_end|ago }}.
+        {% if latest.load_state %}The node is {{ latest.load_state|lower }}, so it is compared with its own {{ latest.load_state|lower }} behaviour and with other nodes in the same state.{% endif %}
+      {% else %}No readings have been scored for this node yet.{% endif %}
+    </p>
+  </div>
+  {% if live_alert %}<a class="btn" href="{% url 'alert_detail' live_alert.pk %}">Open the alert</a>{% endif %}
 </div>
-<p class="muted">As at {{ latest.window_end|date:"Y-m-d H:i" }} UTC.</p>
-{% else %}<p class="muted">No windows have been scored for this node yet.</p>{% endif %}
 
-<h2>Score over the last 12 hours</h2>
-<div class="card"><svg id="chart" viewBox="0 0 900 220" width="100%" role="img" aria-label="Combined score over time"></svg>
-  <p class="muted" id="chart-note"></p></div>
-{{ chart|json_script:"chart-data" }}
-{{ threshold|json_script:"threshold" }}
-<script>
-(function () {
-  var data = JSON.parse(document.getElementById('chart-data').textContent);
-  var threshold = JSON.parse(document.getElementById('threshold').textContent);
-  var svg = document.getElementById('chart'), note = document.getElementById('chart-note');
-  if (!data.length) { note.textContent = 'No scored windows yet.'; return; }
-  var W = 900, H = 220, L = 40, R = 10, T = 10, B = 24;
-  var t0 = new Date(data[0].t).getTime(), t1 = new Date(data[data.length - 1].t).getTime() || t0 + 1;
-  var max = Math.max(5, threshold || 0, Math.max.apply(null, data.map(function (d) { return d.v; })) * 1.1);
-  function x(t) { return L + (t - t0) / Math.max(1, t1 - t0) * (W - L - R); }
-  function y(v) { return H - B - v / max * (H - T - B); }
-  var s = '<line x1="' + L + '" y1="' + (H - B) + '" x2="' + (W - R) + '" y2="' + (H - B) + '" stroke="#999"/>';
-  s += '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (H - B) + '" stroke="#999"/>';
-  if (threshold) s += '<line x1="' + L + '" y1="' + y(threshold) + '" x2="' + (W - R) + '" y2="' + y(threshold) + '" stroke="#b3261e" stroke-dasharray="6 4"/><text x="' + (L + 4) + '" y="' + (y(threshold) - 4) + '" font-size="11" fill="#b3261e">alert threshold ' + threshold + '</text>';
-  s += '<polyline fill="none" stroke="#1f5fbf" stroke-width="1.8" points="' + data.map(function (d) { return x(new Date(d.t).getTime()).toFixed(1) + ',' + y(d.v).toFixed(1); }).join(' ') + '"/>';
-  s += '<text x="4" y="' + (T + 8) + '" font-size="11" fill="#555">' + max.toFixed(1) + '</text><text x="4" y="' + (H - B) + '" font-size="11" fill="#555">0</text>';
-  s += '<text x="' + L + '" y="' + (H - 6) + '" font-size="11" fill="#555">' + new Date(t0).toISOString().slice(5, 16).replace('T', ' ') + '</text>';
-  s += '<text x="' + (W - R) + '" y="' + (H - 6) + '" font-size="11" text-anchor="end" fill="#555">' + new Date(t1).toISOString().slice(5, 16).replace('T', ' ') + ' UTC</text>';
-  svg.innerHTML = s;
-})();
-</script>
-
-<h2>Metrics over the last 12 hours</h2>
-<p class="muted">Each chart shows the 5-minute mean. A red line marks the moment an alert was raised.</p>
-<div class="grid" id="metric-charts" style="grid-template-columns:repeat(auto-fill,minmax(18rem,1fr))"></div>
-{{ series|json_script:"series-data" }}
-{{ markers|json_script:"marker-data" }}
-<script>
-(function () {
-  var series = JSON.parse(document.getElementById('series-data').textContent);
-  var markers = JSON.parse(document.getElementById('marker-data').textContent).map(function (m) { return new Date(m).getTime(); });
-  var host = document.getElementById('metric-charts');
-  var names = Object.keys(series).sort();
-  if (!names.length) { host.innerHTML = '<p class="muted">No metric history yet.</p>'; return; }
-  names.forEach(function (name) {
-    var d = series[name], W = 300, H = 110, L = 6, R = 6, T = 16, B = 6;
-    var ts = d.map(function (p) { return new Date(p.t).getTime(); }), t0 = ts[0], t1 = ts[ts.length - 1] || t0 + 1;
-    var vals = d.map(function (p) { return p.v; }), lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-    if (hi === lo) { hi = lo + 1; }
-    function x(t) { return L + (t - t0) / Math.max(1, t1 - t0) * (W - L - R); }
-    function y(v) { return H - B - (v - lo) / (hi - lo) * (H - T - B); }
-    var s = '<text x="' + L + '" y="11" font-size="11" fill="#333">' + name + '</text>';
-    s += '<polyline fill="none" stroke="#1f5fbf" stroke-width="1.5" points="' + d.map(function (p, i) { return x(ts[i]).toFixed(1) + ',' + y(p.v).toFixed(1); }).join(' ') + '"/>';
-    markers.forEach(function (m) { if (m >= t0 && m <= t1) s += '<line x1="' + x(m).toFixed(1) + '" y1="' + T + '" x2="' + x(m).toFixed(1) + '" y2="' + (H - B) + '" stroke="#b3261e" stroke-width="1.5"/>'; });
-    s += '<text x="' + (W - R) + '" y="11" font-size="10" text-anchor="end" fill="#666">' + lo.toPrecision(3) + ' – ' + hi.toPrecision(3) + '</text>';
-    var card = document.createElement('div'); card.className = 'card'; card.style.padding = '.4rem';
-    card.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="' + name + ' over time">' + s + '</svg>';
-    host.appendChild(card);
-  });
-})();
-</script>
-
-{% if features %}
-<h2>Current values (15-minute mean)</h2>
-<table><tr><th>Metric</th><th>Value</th></tr>
-{% for k, v in features.items %}<tr><td>{{ k|cut:"__mean_15" }}</td><td>{{ v|floatformat:4 }}</td></tr>{% endfor %}</table>
+{% if latest and latest.combined_score is not None %}
+<div class="card">
+  <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:baseline">
+    <h2>How unusual is it?</h2>
+    <span class="muted small">Now: <strong style="color:var(--ink)">{{ latest.combined_score|score_words }}</strong> ({{ latest.combined_score|floatformat:1 }}). An alert opens when it stays above the alert level for several checks in a row.</span>
+  </div>
+  <div id="score"></div>
+</div>
 {% endif %}
 
-<h2>Alerts on this node</h2>
-{% if alerts %}
-<table><tr><th>Opened</th><th>Status</th><th>Outcome</th><th>Peak</th><th></th></tr>
-{% for a in alerts %}<tr><td>{{ a.opened_at|date:"Y-m-d H:i" }}</td><td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
-<td>{{ a.get_outcome_display|default:"–" }}</td><td>{{ a.peak_score|floatformat:2 }}</td><td><a href="{% url 'alert_detail' a.pk %}">Open</a></td></tr>{% endfor %}
-</table>
-{% else %}<p class="muted">No alerts for this node.</p>{% endif %}
+{% if unusual %}
+<section>
+  <h2>Most unusual metrics right now</h2>
+  <p class="muted small">The shaded band is the range this node normally stays in{% if latest %} when {{ latest.load_state|lower }}{% endif %}.</p>
+  <div class="charts" id="unusual">
+    {% for m in unusual %}<div class="card chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
+  </div>
+</section>
+{% elif latest and has_band %}
+<section><div class="card"><strong>Every metric is inside its normal range.</strong></div></section>
+{% endif %}
+
+{% if rest %}
+<section>
+  <details>
+    <summary>{% if unusual %}Other metrics ({{ rest|length }}){% else %}All metrics ({{ rest|length }}){% endif %}</summary>
+    <div class="charts" id="rest" style="margin-top:.7rem">
+      {% for m in rest %}<div class="card chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
+    </div>
+  </details>
+</section>
+{% endif %}
+
+<section>
+  <h2>Alert history for this node</h2>
+  {% if alerts %}
+  <div class="card flush"><table>
+    <thead><tr><th>Status</th><th>What happened</th><th>Opened</th><th>Outcome</th></tr></thead>
+    <tbody>{% for a in alerts %}<tr class="link"><td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
+      <td><a href="{% url 'alert_detail' a.pk %}">{% alert_headline a %}</a></td><td>{{ a.opened_at|ago }}</td>
+      <td>{% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>{% else %}<span class="muted">–</span>{% endif %}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<div class="card empty"><strong>No alerts so far</strong>Earlier alerts and how they were closed will be listed here.</div>{% endif %}
+</section>
+
+{{ chart|json_script:"score-data" }}{{ threshold|json_script:"threshold" }}{{ markers|json_script:"markers" }}
+{{ unusual|json_script:"unusual-data" }}{{ rest|json_script:"rest-data" }}
+{% include "_chart.html" %}
+<script>
+(function () {
+  var J = function (id) { return JSON.parse(document.getElementById(id).textContent); };
+  var markers = J('markers'), score = document.getElementById('score');
+  if (score) Sentinel.line(score, J('score-data'), {h: 170, threshold: J('threshold'), markers: markers, floor: 0, label: 'Unusualness over time', tipLabel: 'Score '});
+  function group(id, data) {
+    var host = document.getElementById(id); if (!host) return;
+    host.querySelectorAll('.chart').forEach(function (el) {
+      var m = data[+el.dataset.i];
+      Sentinel.line(el, m.points, {h: 105, band: m.band, markers: markers, kind: m.kind, label: m.label});
+    });
+  }
+  group('unusual', J('unusual-data'));
+  var det = document.querySelector('details');
+  var drawn = false;
+  function drawRest() { if (!drawn) { drawn = true; group('rest', J('rest-data')); } }
+  if (det) { if (!document.getElementById('unusual')) { det.open = true; } det.addEventListener('toggle', function () { if (det.open) drawRest(); }); if (det.open) drawRest(); }
+})();
+</script>
 {% endblock %}

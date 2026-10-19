@@ -42,6 +42,7 @@ class ModelPeriodForm(forms.Form):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self.fields["model"].queryset = ModelVersion.objects.order_by("-trained_at")
+        self.fields["model"].empty_label = None  # the newest model is pre-selected
 
     def clean(self):
         data = super().clean()

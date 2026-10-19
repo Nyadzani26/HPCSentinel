@@ -21,11 +21,11 @@ class FleetScreenTests(TestCase):
                                        source_reachable=reachable, config=make_config())
 
     def test_no_cycle_yet_is_explained(self):
-        self.assertContains(self.client.get(reverse("home")), "No detection cycle has run yet")
+        self.assertContains(self.client.get(reverse("home")), "Get started")
 
     def test_outage_banner_is_shown(self):  # FR-20, NFR-08
         self.cycle(reachable=False)
-        self.assertContains(self.client.get(reverse("home")), "Data source unavailable")
+        self.assertContains(self.client.get(reverse("home")), "Data is out of date")
 
     def test_tile_states(self):  # FR-20
         config, model = make_config(), make_model(make_config())
@@ -38,14 +38,15 @@ class FleetScreenTests(TestCase):
         a = make_alert(Node.objects.get(name="compute03"), config=config, model=model)
         a.acknowledge()
         html = self.client.get(reverse("home")).content.decode()
-        self.assertEqual(html.count('class="tile normal"'), 1)
-        self.assertEqual(html.count('class="tile unusual"'), 1)
-        self.assertEqual(html.count('class="tile review"'), 1)
-        self.assertEqual(html.count('class="tile unknown"'), 2)
+        self.assertEqual(html.count('data-state="normal"'), 1)
+        self.assertEqual(html.count('data-state="unusual"'), 1)
+        self.assertEqual(html.count('data-state="review"'), 1)
+        self.assertEqual(html.count('data-state="unknown"'), 2)
+        self.assertLess(html.index('data-name="compute02"'), html.index('data-name="compute01"'))  # problems first
 
     def test_node_detail_renders_without_data(self):  # FR-21
         make_node("compute01")
-        self.assertContains(self.client.get(reverse("node_detail", args=["compute01"])), "No windows have been scored")
+        self.assertContains(self.client.get(reverse("node_detail", args=["compute01"])), "No readings have been scored")
 
     def test_unknown_node_is_404(self):
         self.assertEqual(self.client.get(reverse("node_detail", args=["nope"])).status_code, 404)
@@ -69,7 +70,7 @@ class TriageTests(TestCase):
         self.assertEqual(self.alert.status, "OPEN")
 
     def test_detail_shows_the_explanation(self):  # FR-19, FR-22
-        self.assertContains(self.client.get(reverse("alert_detail", args=[self.alert.pk])), "Why this alert was raised")
+        self.assertContains(self.client.get(reverse("alert_detail", args=[self.alert.pk])), "What changed")
 
     def test_full_triage_flow_records_who_and_when(self):  # FR-24..FR-27, BR-11
         self.post("alert_acknowledge")

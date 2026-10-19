@@ -13,7 +13,7 @@ class AccessTests(TestCase):
     def test_sign_in_with_valid_credentials(self):
         make_user("op")
         self.assertTrue(self.client.login(username="op", password="correct-horse-battery"))
-        self.assertContains(self.client.get(reverse("home")), "Fleet overview")
+        self.assertContains(self.client.get(reverse("home")), "Overview")
 
     def test_wrong_password_is_refused_without_naming_the_cause(self):
         make_user("op")

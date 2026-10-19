@@ -15,7 +15,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from core import forms
+from core import display, forms
 from core.config import ConfigError, load_config
 from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
                          Job, ModelVersion, Node, NodeWindow, User)
@@ -60,51 +60,92 @@ def node_state(node, window, live_alert):
 
 @login_required
 def home(request):
-    """S-02 fleet overview."""
+    """S-02 overview: what needs attention first, then every node (FR-20)."""
     last_cycle = CycleRun.objects.filter(mode=CycleRun.Mode.LIVE).order_by("-started_at").first()
-    live_alerts = {a.node_id: a for a in Alert.objects.filter(mode="LIVE", status__in=["OPEN", "ACKNOWLEDGED"])}
+    live_alerts = {a.node_id: a for a in Alert.objects.filter(mode="LIVE", status__in=["OPEN", "ACKNOWLEDGED"])
+                   .select_related("node").order_by("-opened_at")}
     latest = {}
     for w in NodeWindow.objects.filter(cycle__mode="LIVE", window_end__gte=timezone.now() - timedelta(hours=1)) \
             .order_by("window_end"):
         latest[w.node_id] = w
+    order = {"unusual": 0, "review": 1, "unknown": 2, "normal": 3}
     tiles = []
     for node in Node.objects.filter(is_active=True).order_by("name"):
         window = latest.get(node.pk)
         css, label = node_state(node, window, live_alerts.get(node.pk))
         tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
+    tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
     source_ok = bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER)
+    model = ModelVersion.objects.order_by("-trained_at").first()
+    setup = [
+        {"done": bool(last_cycle and last_cycle.source_reachable), "title": "Connect to Prometheus",
+         "text": "Set the address of your Prometheus server and test it.", "url": "controls", "action": "Open settings"},
+        {"done": model is not None, "title": "Train the first model",
+         "text": "Learn what normal looks like from a period when the cluster was healthy.", "url": "controls", "action": "Train a model"},
+        {"done": source_ok and model is not None, "title": "Monitoring runs by itself",
+         "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
+    ]
     return render(request, "fleet.html", {
-        "tiles": tiles, "counts": counts, "last_cycle": last_cycle, "source_ok": source_ok,
-        "model": ModelVersion.objects.order_by("-trained_at").first(),
+        "tiles": tiles, "counts": counts, "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
+        "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
+        "total": len(tiles),
     })
+
+
+def _baseline_lookup(node, state):
+    """Normal values for this node and load state from the newest model: {feature: (median, scale)} and pooled scales."""
+    model = ModelVersion.objects.order_by("-trained_at").first()
+    if model is None or not state:
+        return {}, {}
+    table = model.baselines.get("baselines", {}).get(node.name, {}).get(state, {})
+    return {f: (v[0], v[1]) for f, v in table.items()}, model.baselines.get("pooled", {})
 
 
 @login_required
 def node_detail(request, name):
-    """S-03 node inspection: load state, recent scores and alerts of one node."""
+    """S-03 node inspection: the score, then the metrics that are most unusual right now (FR-21, FR-23)."""
     node = get_object_or_404(Node, name=name)
     windows = list(NodeWindow.objects.filter(node=node, cycle__mode="LIVE").order_by("-window_end")[:360])
     windows.reverse()
     latest = windows[-1] if windows else None
-    chart = [{"t": w.window_end.isoformat(), "v": w.combined_score} for w in windows if w.combined_score is not None]
-    threshold = None
+    chart = [{"t": w.window_end.isoformat(), "v": round(w.combined_score, 3)} for w in windows if w.combined_score is not None]
     cycle = CycleRun.objects.filter(mode="LIVE").order_by("-started_at").select_related("config").first()
-    if cycle is not None:
-        threshold = cycle.config.content.get("detection", {}).get("alert_threshold")
-    features = {}
-    if latest is not None:
-        features = {k: v for k, v in sorted(latest.features.items()) if k.endswith("__mean_15")}
+    threshold = cycle.config.content.get("detection", {}).get("alert_threshold") if cycle else None
+    state = latest.load_state if latest else None
+    baseline, pooled = _baseline_lookup(node, state)
     series = {}
-    for w in windows:  # one chart per metric, from the stored 5-minute means (FR-21)
+    for w in windows:  # one chart per metric, from the stored 5-minute means
         for key, value in w.features.items():
             if key.endswith("__mean_5"):
                 series.setdefault(key[:-len("__mean_5")], []).append({"t": w.window_end.isoformat(), "v": value})
+    metrics = []
+    for metric, points in series.items():
+        feature = f"{metric}__mean_5"
+        ref = baseline.get(feature)
+        z, band = 0.0, None
+        if ref is not None:
+            median, scale = ref
+            floor = max(0.1 * pooled.get(feature, 0.0), 0.05 * abs(median), 1e-9)
+            width = 3 * max(scale, floor)
+            band = [median - width, median + width] if width > 1e-6 else None
+            z = abs(points[-1]["v"] - median) / max(scale, floor)
+        metrics.append({"name": metric, "label": display.label(metric), "kind": display.unit_kind(metric), "points": points,
+                        "band": band, "z": round(z, 2), "now": display.fmt(points[-1]["v"], metric),
+                        "normal": None if ref is None else display.fmt(ref[0], metric)})
+    metrics.sort(key=lambda m: (-m["z"], m["label"]))
+    unusual = [m for m in metrics if m["z"] >= 3][:6]
+    if not unusual:
+        unusual = []
+    rest = [m for m in metrics if m not in unusual]
     alerts = Alert.objects.filter(node=node, mode="LIVE").order_by("-opened_at")
+    live_alert = alerts.filter(status__in=["OPEN", "ACKNOWLEDGED"]).first()
     markers = [a.opened_at.isoformat() for a in alerts if windows and a.opened_at >= windows[0].window_end]
+    css, label = node_state(node, latest, live_alert)
     return render(request, "node_detail.html", {
-        "node": node, "latest": latest, "chart": chart, "threshold": threshold, "features": features,
-        "alerts": alerts[:20], "series": series, "markers": markers,
+        "node": node, "latest": latest, "chart": chart, "threshold": threshold, "state_css": css, "state_label": label,
+        "unusual": unusual, "rest": rest, "alerts": alerts[:20], "markers": markers, "live_alert": live_alert,
+        "has_band": bool(baseline),
     })
 
 
@@ -139,16 +180,33 @@ def alert_list(request):
 
 @login_required
 def alert_detail(request, pk):
-    """S-05 one alert: explanation, evidence and the triage actions."""
+    """S-05 one alert: what changed, why it was raised, and the next step (FR-19, FR-24 to FR-27)."""
     alert = get_object_or_404(Alert.objects.select_related("node", "model"), pk=pk)
+    ex = alert.explanation or {}
+    rows = []
+    top_z = max([c.get("z", 0) for c in ex.get("contributors", [])] or [1])
+    for c in ex.get("contributors", []):
+        delta = display.change(c.get("observed"), c.get("expected"))
+        rows.append({"label": display.label(c["metric"]), "now": display.fmt(c.get("observed"), c["metric"]),
+                     "normal": display.fmt(c.get("expected"), c["metric"]), "change": delta["text"],
+                     "direction": delta["direction"], "share": round(100 * c.get("z", 0) / top_z),
+                     "compared_with": c.get("compared_with", "")})
+    h = ex.get("history") or {}
+    windows = list(alert.windows.order_by("window_end")[:400])
+    chart = [{"t": w.window_end.isoformat(), "v": round(w.combined_score, 3)} for w in windows if w.combined_score is not None]
+    steps = [("OPEN", "Open"), ("ACKNOWLEDGED", "Acknowledged"), ("CLOSED", "Closed")]
+    reached = [k for k, _ in steps].index(alert.status)
     return render(request, "alert_detail.html", {
-        "alert": alert, "actions": alert.actions.select_related("user").order_by("created_at"),
-        "windows": alert.windows.order_by("window_end")[:50],
+        "alert": alert, "rows": rows, "history": h, "chart": chart, "threshold": ex.get("threshold"),
+        "actions": alert.actions.select_related("user").order_by("created_at"), "windows": windows[-50:],
+        "steps": [{"key": k, "label": lbl, "state": "done" if i < reached else "current" if i == reached else "todo"}
+                  for i, (k, lbl) in enumerate(steps)],
         "close_form": forms.CloseForm(), "note_form": forms.NoteForm(),
+        "load_state": (ex.get("load_state") or "").lower(),
     })
 
 
-def _review(request, pk, operation):
+def _review(request, pk, operation, done="Done."):
     alert = get_object_or_404(Alert, pk=pk)
     service = ReviewService()
     try:
@@ -158,14 +216,15 @@ def _review(request, pk, operation):
     except InvalidTransition as exc:
         messages.error(request, str(exc))
     else:
-        messages.success(request, "Done.")
+        messages.success(request, done)
     return redirect("alert_detail", pk=pk)
 
 
 @login_required
 @require_POST
 def alert_acknowledge(request, pk):
-    return _review(request, pk, lambda s, a: s.acknowledge(a, request.user, request.POST.get("note", "")))
+    return _review(request, pk, lambda s, a: s.acknowledge(a, request.user, request.POST.get("note", "")),
+                   "Alert acknowledged. Close it when you know what happened.")
 
 
 @login_required
@@ -175,13 +234,14 @@ def alert_close(request, pk):
     if not form.is_valid():
         messages.error(request, " ".join(e for errs in form.errors.values() for e in errs))
         return redirect("alert_detail", pk=pk)
-    return _review(request, pk, lambda s, a: s.close(a, request.user, form.cleaned_data["outcome"], form.cleaned_data["note"]))
+    return _review(request, pk, lambda s, a: s.close(a, request.user, form.cleaned_data["outcome"], form.cleaned_data["note"]),
+                   "Alert closed.")
 
 
 @login_required
 @require_POST
 def alert_reopen(request, pk):
-    return _review(request, pk, lambda s, a: s.reopen(a, request.user, request.POST.get("note", "")))
+    return _review(request, pk, lambda s, a: s.reopen(a, request.user, request.POST.get("note", "")), "Alert reopened.")
 
 
 @login_required
@@ -191,7 +251,7 @@ def alert_note(request, pk):
     if not form.is_valid():
         messages.error(request, " ".join(e for errs in form.errors.values() for e in errs))
         return redirect("alert_detail", pk=pk)
-    return _review(request, pk, lambda s, a: s.add_note(a, request.user, form.cleaned_data["note"]))
+    return _review(request, pk, lambda s, a: s.add_note(a, request.user, form.cleaned_data["note"]), "Note added.")
 
 
 # ---- controls (Administrator only) ---------------------------------------------------------
@@ -203,8 +263,13 @@ def _queue(request, job_type, form, params):
 @administrator_required
 def controls(request):
     """Model and experiment controls: train, replay, evaluate, excluded periods, experiment log (FR-16, FR-28 to FR-30)."""
-    forms_ = {"train": forms.TrainForm(), "replay": forms.ModelPeriodForm(prefix="replay"),
-              "evaluate": forms.ModelPeriodForm(prefix="eval"), "excluded": forms.ExcludedPeriodForm(),
+    today = timezone.now().replace(minute=0, second=0, microsecond=0)
+    fmt_ = lambda d: d.strftime("%Y-%m-%dT%H:%M")  # noqa: E731
+    train_initial = {"start": fmt_(today - timedelta(days=16)), "end": fmt_(today - timedelta(days=2))}
+    test_initial = {"start": fmt_(today - timedelta(days=2)), "end": fmt_(today)}
+    forms_ = {"train": forms.TrainForm(initial=train_initial),
+              "replay": forms.ModelPeriodForm(prefix="replay", initial=test_initial),
+              "evaluate": forms.ModelPeriodForm(prefix="eval", initial=test_initial), "excluded": forms.ExcludedPeriodForm(),
               "upload": forms.ExperimentUploadForm()}
     try:
         base_cfg = _file_config()
@@ -283,6 +348,10 @@ def controls(request):
         "readiness": readiness,
         **{f"{k}_form": v for k, v in forms_.items()},
         "jobs": Job.objects.order_by("-requested_at")[:10],
+        "autorefresh": request.method == "GET" and Job.objects.filter(status__in=["PENDING", "RUNNING"]).exists(),
+        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "train": "models",
+                       "replay": "testing", "evaluate": "testing", "upload": "testing", "excluded": "excluded"}
+                      .get(request.POST.get("action"), "source"),
         "models": ModelVersion.objects.order_by("-trained_at")[:10],
         "evaluations": EvaluationRun.objects.select_related("model").order_by("-pk")[:10],
         "periods": ExcludedPeriod.objects.order_by("-start_at")[:10],

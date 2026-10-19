@@ -1,34 +1,106 @@
 {% extends "base.html" %}
-{% block title %}Fleet overview · HPCSentinel{% endblock %}
+{% load sentinel %}
+{% block title %}Overview · HPCSentinel{% endblock %}
 {% block content %}
-<h1>Fleet overview</h1>
-{% if not last_cycle %}
-  <div class="banner">No detection cycle has run yet. Start the worker (<code>manage.py run_worker</code>) to begin.</div>
-{% elif not source_ok %}
-  <div class="banner" role="alert"><strong>Data source unavailable.</strong>
-    Prometheus was not reachable at the last cycle ({{ last_cycle.started_at|date:"Y-m-d H:i" }} UTC), or the worker has stopped.
-    Node states below may be out of date and no new alerts are being raised.</div>
-{% endif %}
-{% if not model %}
-  <div class="banner">No model has been trained, so nodes show as "No baseline". An Administrator can train one under Controls.</div>
-{% endif %}
-<div class="summary">
-  <div class="card"><strong>{{ counts.normal }}</strong>Normal</div>
-  <div class="card"><strong>{{ counts.unusual }}</strong>Unusual</div>
-  <div class="card"><strong>{{ counts.review }}</strong>Under review</div>
-  <div class="card"><strong>{{ counts.unknown }}</strong>Unreliable / no baseline</div>
+<div class="head">
+  <div>
+    <h1>Overview</h1>
+    <p class="muted">
+      {% if not total %}No nodes yet.
+      {% elif counts.unusual or counts.review %}{{ attention|length }} node{{ attention|length|pluralize }} need{{ attention|length|pluralize:"s," }} attention.
+      {% else %}All {{ counts.normal }} node{{ counts.normal|pluralize }} are behaving normally.{% endif %}
+    </p>
+  </div>
 </div>
-{% if tiles %}
-<div class="grid">
-  {% for t in tiles %}
-  <a class="tile {{ t.css }}" href="{% url 'node_detail' t.node.name %}">
-    <b>{{ t.node.name }}</b>
-    <span>{{ t.label }}</span>
-    <small>{% if t.window and t.window.load_state %}{{ t.window.load_state|title }}{% if t.window.combined_score is not None %} · {{ t.window.combined_score|floatformat:1 }}{% endif %}{% else %}&nbsp;{% endif %}</small>
-  </a>
-  {% endfor %}
+
+{% if last_cycle and not source_ok %}
+<div class="notice bad" role="alert"><strong>Data is out of date.</strong>
+  {% if not last_cycle.source_reachable %}Prometheus did not answer at the last check ({{ last_cycle.started_at|ago }}).{% else %}The worker has not run for a while.{% endif %}
+  Node states below may be old and no new alerts are being raised.
+  {% if user.is_administrator %}<a href="{% url 'controls' %}">Check the data source</a>{% endif %}</div>
+{% endif %}
+
+{% if not setup_done %}
+<div class="card" style="margin-bottom:1.4rem">
+  <h2>Get started</h2>
+  <p class="muted">Three steps and HPCSentinel watches the cluster for you.</p>
+  <div class="steps">
+    {% for s in setup %}
+    <div class="step"><span class="tick {% if s.done %}done{% endif %}">{% if s.done %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
+      <div><strong>{{ s.title }}</strong><div class="muted small">{{ s.text }}</div>
+        {% if not s.done and s.url and user.is_administrator %}<a class="btn small" style="margin-top:.4rem" href="{% url s.url %}">{{ s.action }}</a>{% endif %}</div></div>
+    {% endfor %}
+  </div>
+  {% if not user.is_administrator %}<p class="muted small" style="margin-top:.8rem">Ask an Administrator to complete setup.</p>{% endif %}
 </div>
-{% else %}<p class="muted">No nodes are registered yet. They appear after the first cycle reaches Prometheus.</p>{% endif %}
-<p class="muted" style="margin-top:1rem">Score = how many robust standard deviations the node is from normal (alert above the configured threshold for the required number of consecutive windows).
-{% if model %}Model {{ model.label }}, trained {{ model.trained_at|date:"Y-m-d H:i" }}.{% endif %}</p>
+{% endif %}
+
+{% if attention %}
+<section aria-labelledby="attn-h" style="margin-top:0">
+  <h2 id="attn-h">Needs attention</h2>
+  <div class="attn">
+    {% for t in attention %}
+    <div class="card attn-card {{ t.css }}">
+      <div>
+        <h3>{% alert_headline t.alert %}</h3>
+        <div class="muted small">Opened {{ t.alert.opened_at|ago }} · {{ t.window.load_state|default:"–"|lower }}</div>
+      </div>
+      <div style="display:flex;gap:.7rem;align-items:center">
+        <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
+        <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Review{% else %}Continue{% endif %}</a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section aria-labelledby="nodes-h" {% if not attention %}style="margin-top:0"{% endif %}>
+  <h2 id="nodes-h">All nodes</h2>
+  {% if tiles %}
+  <div class="toolbar">
+    <input type="search" id="q" class="grow" placeholder="Find a node, e.g. compute07" aria-label="Find a node" autocomplete="off">
+    <div class="chips" role="group" aria-label="Filter by state" id="filters">
+      <button type="button" class="chip" data-f="all" aria-pressed="true">All<span class="n">{{ total }}</span></button>
+      <button type="button" class="chip" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ attention|length }}</span></button>
+      <button type="button" class="chip" data-f="normal" aria-pressed="false">Normal<span class="n">{{ counts.normal }}</span></button>
+      <button type="button" class="chip" data-f="unknown" aria-pressed="false">No data<span class="n">{{ counts.unknown }}</span></button>
+    </div>
+  </div>
+  <div class="nodes" id="nodes">
+    {% for t in tiles %}
+    <a class="node {{ t.css }}" data-state="{{ t.css }}" data-name="{{ t.node.name }}" href="{% url 'node_detail' t.node.name %}">
+      <span class="top"><span class="dot {{ t.css }}"></span>{{ t.node.name }}</span>
+      <small>{{ t.label }}{% if t.window and t.window.load_state %} · {{ t.window.load_state|lower }}{% endif %}</small>
+    </a>
+    {% endfor %}
+  </div>
+  <p class="muted small" id="none" hidden>No node matches.</p>
+  <p class="muted small" style="margin-top:.9rem">
+    {% if model %}Compared with what is normal for each node, learned by {{ model.label }} on {{ model.trained_at|date:"j M Y" }}.{% endif %}
+    “No data” means the node has no reliable recent readings or no learned baseline yet.</p>
+  {% else %}
+  <div class="card empty"><strong>No nodes yet</strong>Nodes appear after the first check reaches Prometheus.</div>
+  {% endif %}
+</section>
+<script>
+(function () {
+  var q = document.getElementById('q'), nodes = document.querySelectorAll('#nodes .node'), f = 'all';
+  if (!q) return;
+  function apply() {
+    var term = q.value.trim().toLowerCase(), shown = 0;
+    nodes.forEach(function (n) {
+      var s = n.dataset.state, ok = f === 'all' || (f === 'attention' && (s === 'unusual' || s === 'review')) || f === s;
+      ok = ok && n.dataset.name.toLowerCase().indexOf(term) !== -1;
+      n.hidden = !ok; if (ok) shown++;
+    });
+    document.getElementById('none').hidden = shown !== 0;
+  }
+  q.addEventListener('input', apply);
+  document.getElementById('filters').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; f = b.dataset.f;
+    this.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b); }); apply();
+  });
+})();
+</script>
 {% endblock %}
