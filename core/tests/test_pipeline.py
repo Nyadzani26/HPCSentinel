@@ -15,7 +15,7 @@ from core.pipeline.cycle import DetectionCycle
 from core.pipeline.engine import AlertManager
 from core.pipeline.jobs import JobError
 from core.tests.helpers import make_user
-from core.tests.synthetic import T0, SyntheticClient
+from core.demo_data import T0, SyntheticClient
 
 EXAMPLE = Path(__file__).resolve().parents[2] / "config" / "hpcsentinel.example.yml"
 

@@ -44,9 +44,9 @@ class DetectionCycle:
                 return None, None
         return model, self._detector[1]
 
-    def score_fleet(self, cycle: CycleRun) -> int:
+    def score_fleet(self, cycle: CycleRun, now=None) -> int:
         """Retrieve, score and store one window per node; returns the number of alerts raised."""
-        now = pd.Timestamp(timezone.now()).floor("min")
+        now = pd.Timestamp(now or timezone.now()).floor("min")
         frames_by_label = feat.fetch_frames(self.client, self.cfg, now.timestamp() - self.LOOKBACK_SECONDS,
                                             now.timestamp(), step=60)
         nodes = list(Node.objects.filter(is_active=True).select_related("group"))
@@ -68,7 +68,7 @@ class DetectionCycle:
         for window in NodeWindow.objects.filter(cycle=cycle).select_related("node"):
             if manager.is_abnormal(window):
                 raised += bool(manager.evaluate(window.node, window, groups[window.node.name],
-                                                entries[window.node.name], timezone.now()))
+                                                entries[window.node.name], now.to_pydatetime()))
         return raised
 
     def sync_nodes(self):
@@ -85,11 +85,14 @@ class DetectionCycle:
             created += was_created
         return created
 
-    def run(self) -> CycleRun:
+    def run(self, now=None) -> CycleRun:
+        """Run one cycle. `now` is for the demo and tests; production always uses the clock."""
+        injected = now
+        now = now or timezone.now()
         config_version = ensure_config_version(self.cfg)
         cycle = CycleRun.objects.create(
             mode=CycleRun.Mode.LIVE,
-            started_at=timezone.now(),
+            started_at=now,
             source_reachable=self.client.is_reachable(),
             config=config_version,
         )
@@ -99,10 +102,10 @@ class DetectionCycle:
         else:
             try:
                 self.sync_nodes()
-                self.score_fleet(cycle)
+                self.score_fleet(cycle, now)
             except PrometheusError as exc:
                 # The cycle is kept; the failure is logged and the next cycle tries again (NFR-08).
                 log.error("Cycle %s could not complete: %s", cycle.pk, exc)
-        cycle.finished_at = timezone.now()
+        cycle.finished_at = now if injected is not None else timezone.now()
         cycle.save(update_fields=["finished_at"])
         return cycle

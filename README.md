@@ -39,6 +39,22 @@ Notes:
 * The release serves plain HTTP. Place it behind the facility's TLS-terminating proxy for any use
   beyond a trusted management network (see report Section 5.7).
 
+## What you can do in the web interface
+
+* **Fleet** (home): a tile for every node, coloured Normal, Unusual, Under review, or Unreliable / no baseline, with a banner when Prometheus is unreachable.
+* **Node page**: load state, the three scores, a score chart with the alert threshold, and one chart per metric with a red line where an alert was raised.
+* **Alerts**: filter by status, node and date. Each alert shows why it was raised (baseline, observed value, deviation, load state, top contributing metrics, the node's history) and is acknowledged, closed with an outcome (Confirmed or False alarm), noted, or reopened by an Administrator. Every action records who and when.
+* **Controls** (Administrator): Prometheus address and test, alert threshold and persistence, data-readiness report, train / replay / evaluate requests, excluded periods, and the experiment-log upload.
+* **Users** (Administrator): create users, set roles, deactivate.
+
+## Trying it without a cluster
+
+```bash
+docker compose run --rm web python manage.py seed_demo --hours 6
+```
+
+builds a synthetic fleet, trains on three normal days and runs the real live cycle with two injected faults, so every screen has data. It never contacts Prometheus.
+
 ## Configuration
 
 `config/hpcsentinel.yml` defines which metrics are used, how Prometheus names the nodes and how
