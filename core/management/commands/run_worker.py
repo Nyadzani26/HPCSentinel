@@ -7,6 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.config import ConfigError, load_config
 from core.pipeline.cycle import DetectionCycle
+from core.pipeline.jobs import process_pending
 from core.services.prometheus import PrometheusClient, PrometheusError
 
 log = logging.getLogger(__name__)
@@ -29,12 +30,15 @@ class Command(BaseCommand):
 
         cycle = DetectionCycle(cfg, client)
         if options["once"]:
+            process_pending(cfg, client)
             cycle.run()
             return
 
         interval = cfg["detection"]["retrieval_interval_seconds"]
         scheduler = BlockingScheduler(timezone="UTC")
         scheduler.add_job(cycle.run, "interval", seconds=interval, max_instances=1, coalesce=True)
+        # Requests made in the web application (train, replay, evaluate) are picked up here (D-3).
+        scheduler.add_job(lambda: process_pending(cfg, client), "interval", seconds=10, max_instances=1, coalesce=True)
         log.info("Worker started; one cycle every %s seconds against %s.", interval, url)
         cycle.run()  # first cycle immediately
         try:

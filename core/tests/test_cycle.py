@@ -21,6 +21,9 @@ class FakeClient:
     def query_instant(self, query, label="instance"):
         return {n: 1.0 for n in self.nodes}
 
+    def query_range(self, query, start, end, step, label="instance"):
+        return {}
+
 
 def config():
     cfg = yaml.safe_load(EXAMPLE.read_text())

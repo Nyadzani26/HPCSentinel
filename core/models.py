@@ -88,6 +88,7 @@ class Job(models.Model):
     requested_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="jobs")
     requested_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    message = models.TextField(blank=True, help_text="Outcome or error text shown to the administrator.")
 
 
 class CycleRun(models.Model):
