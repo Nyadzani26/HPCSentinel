@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Alerts · HPCSentinel{% endblock %}
+{% block content %}
+<h1>Alerts</h1>
+<p>
+  {% for key, label in filters %}<a class="btn {% if status != key %}secondary{% endif %}" href="?status={{ key }}">{{ label }}</a> {% endfor %}
+</p>
+{% if alerts %}
+<table>
+  <tr><th>Opened (UTC)</th><th>Node</th><th>Status</th><th>Outcome</th><th>Peak score</th><th>Summary</th><th></th></tr>
+  {% for a in alerts %}
+  <tr><td>{{ a.opened_at|date:"Y-m-d H:i" }}</td><td><a href="{% url 'node_detail' a.node.name %}">{{ a.node.name }}</a></td>
+    <td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td><td>{{ a.get_outcome_display|default:"–" }}</td>
+    <td>{{ a.peak_score|floatformat:2 }}</td><td>{{ a.explanation.summary }}</td><td><a href="{% url 'alert_detail' a.pk %}">Review</a></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p class="muted">No alerts match this filter.</p>{% endif %}
+{% endblock %}

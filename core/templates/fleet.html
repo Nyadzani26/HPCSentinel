@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Fleet overview · HPCSentinel{% endblock %}
+{% block content %}
+<h1>Fleet overview</h1>
+{% if not last_cycle %}
+  <div class="banner">No detection cycle has run yet. Start the worker (<code>manage.py run_worker</code>) to begin.</div>
+{% elif not source_ok %}
+  <div class="banner" role="alert"><strong>Data source unavailable.</strong>
+    Prometheus was not reachable at the last cycle ({{ last_cycle.started_at|date:"Y-m-d H:i" }} UTC), or the worker has stopped.
+    Node states below may be out of date and no new alerts are being raised.</div>
+{% endif %}
+{% if not model %}
+  <div class="banner">No model has been trained, so nodes show as "No baseline". An Administrator can train one under Controls.</div>
+{% endif %}
+<div class="summary">
+  <div class="card"><strong>{{ counts.normal }}</strong>Normal</div>
+  <div class="card"><strong>{{ counts.unusual }}</strong>Unusual</div>
+  <div class="card"><strong>{{ counts.review }}</strong>Under review</div>
+  <div class="card"><strong>{{ counts.unknown }}</strong>Unreliable / no baseline</div>
+</div>
+{% if tiles %}
+<div class="grid">
+  {% for t in tiles %}
+  <a class="tile {{ t.css }}" href="{% url 'node_detail' t.node.name %}">
+    <b>{{ t.node.name }}</b>
+    <span>{{ t.label }}</span>
+    <small>{% if t.window and t.window.load_state %}{{ t.window.load_state|title }}{% if t.window.combined_score is not None %} · {{ t.window.combined_score|floatformat:1 }}{% endif %}{% else %}&nbsp;{% endif %}</small>
+  </a>
+  {% endfor %}
+</div>
+{% else %}<p class="muted">No nodes are registered yet. They appear after the first cycle reaches Prometheus.</p>{% endif %}
+<p class="muted" style="margin-top:1rem">Score = how many robust standard deviations the node is from normal (alert above the configured threshold for the required number of consecutive windows).
+{% if model %}Model {{ model.label }}, trained {{ model.trained_at|date:"Y-m-d H:i" }}.{% endif %}</p>
+{% endblock %}

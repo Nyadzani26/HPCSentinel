@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Controls · HPCSentinel{% endblock %}
+{% block content %}
+<h1>Model and experiment controls</h1>
+<p class="muted">Training, replay and evaluation run in the worker, not in this page. Choose a period and the worker starts it within seconds.</p>
+<div class="row">
+ <div class="card"><h2 style="margin-top:0">Train a model</h2>
+  <p class="muted">Learn baselines from a period believed to be normal. Excluded periods are left out.</p>
+  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="train">
+   {{ train_form.non_field_errors }}
+   <label>Start (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
+   <label>End (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
+   <label>Label (optional){{ train_form.label }}</label>
+   <button type="submit">Request training</button></form></div>
+ <div class="card"><h2 style="margin-top:0">Replay a past period</h2>
+  <p class="muted">Run the live detection over history with a chosen model. Use a period the model was not trained on.</p>
+  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="replay">
+   {{ replay_form.non_field_errors }}
+   <label>Model{{ replay_form.model }}{{ replay_form.model.errors }}</label>
+   <label>Start (UTC){{ replay_form.start }}{{ replay_form.start.errors }}</label>
+   <label>End (UTC){{ replay_form.end }}{{ replay_form.end.errors }}</label>
+   <button type="submit">Request replay</button></form></div>
+ <div class="card"><h2 style="margin-top:0">Evaluate</h2>
+  <p class="muted">Compare replayed alerts with the experiment log.</p>
+  <form method="post" class="stack">{% csrf_token %}<input type="hidden" name="action" value="evaluate">
+   {{ evaluate_form.non_field_errors }}
+   <label>Model{{ evaluate_form.model }}{{ evaluate_form.model.errors }}</label>
+   <label>Start (UTC){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
+   <label>End (UTC){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
+   <button type="submit">Request evaluation</button></form></div>
+</div>
+
+<h2>Jobs</h2>
+<table><tr><th>#</th><th>Type</th><th>Status</th><th>Requested</th><th>Result</th></tr>
+{% for j in jobs %}<tr><td>{{ j.pk }}</td><td>{{ j.get_type_display }}</td><td>{{ j.get_status_display }}</td><td>{{ j.requested_at|date:"Y-m-d H:i" }}</td><td>{{ j.message }}</td></tr>
+{% empty %}<tr><td colspan="5" class="muted">No jobs yet.</td></tr>{% endfor %}</table>
+
+<h2>Models</h2>
+<table><tr><th>Label</th><th>Trained</th><th>Learned from</th><th>Nodes</th></tr>
+{% for m in models %}<tr><td>{{ m.label }}</td><td>{{ m.trained_at|date:"Y-m-d H:i" }}</td><td>{{ m.train_start|date:"Y-m-d H:i" }} – {{ m.train_end|date:"Y-m-d H:i" }}</td><td>{{ m.baselines.nodes }}</td></tr>
+{% empty %}<tr><td colspan="4" class="muted">No model has been trained.</td></tr>{% endfor %}</table>
+
+<h2>Evaluation results</h2>
+<table><tr><th>Model</th><th>Period</th><th>Episodes detected</th><th>Median delay</th><th>False alerts / node / week</th></tr>
+{% for e in evaluations %}<tr><td>{{ e.model.label }}</td><td>{{ e.period_start|date:"Y-m-d H:i" }} – {{ e.period_end|date:"Y-m-d H:i" }}</td>
+<td>{{ e.episodes_detected }} of {{ e.episodes_total }}</td><td>{% if e.median_delay_seconds is None %}–{% else %}{{ e.median_delay_seconds|floatformat:0 }} s{% endif %}</td>
+<td>{{ e.false_alerts_per_node_week|floatformat:2 }}</td></tr>
+{% empty %}<tr><td colspan="5" class="muted">No evaluations yet.</td></tr>{% endfor %}</table>
+
+<div class="row">
+ <div><h2>Excluded periods</h2>
+  <p class="muted">Time that must never be learned from, such as a benchmark or an injected test.</p>
+  <table><tr><th>From (UTC)</th><th>To (UTC)</th><th>Reason</th><th></th></tr>
+  {% for p in periods %}<tr><td>{{ p.start_at|date:"Y-m-d H:i" }}</td><td>{{ p.end_at|date:"Y-m-d H:i" }}</td><td>{{ p.reason }}</td>
+   <td><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="secondary" type="submit">Remove</button></form></td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">None.</td></tr>{% endfor %}</table>
+  <form method="post" class="stack card" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="excluded">
+   {{ excluded_form.non_field_errors }}
+   <label>From (UTC){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
+   <label>To (UTC){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
+   <label>Reason{{ excluded_form.reason }}{{ excluded_form.reason.errors }}</label>
+   <button type="submit">Add excluded period</button></form></div>
+ <div><h2>Experiment log</h2>
+  <p class="muted">Injected anomalies used as ground truth when evaluating. Upload a CSV; an invalid row rejects the whole file.</p>
+  <table><tr><th>Node</th><th>Type</th><th>From (UTC)</th><th>To (UTC)</th></tr>
+  {% for x in experiments %}<tr><td>{{ x.node.name }}</td><td>{{ x.get_anomaly_type_display }}</td><td>{{ x.start_at|date:"Y-m-d H:i" }}</td><td>{{ x.end_at|date:"Y-m-d H:i" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="muted">No entries.</td></tr>{% endfor %}</table>
+  <form method="post" enctype="multipart/form-data" class="stack card" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="upload">
+   {{ upload_form.file }}{{ upload_form.file.errors }}<button type="submit">Import log</button></form></div>
+</div>
+{% endblock %}
