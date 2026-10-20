@@ -51,6 +51,14 @@ def validate(cfg: dict) -> dict:
     if threshold <= 0:
         raise ConfigError("'alert_threshold' in detection must be greater than zero.")
 
+    spans = det.get("feature_spans_minutes", [5, 15])
+    if not isinstance(spans, list) or not spans or not all(isinstance(x, int) and 1 <= x <= 180 for x in spans):
+        raise ConfigError("'feature_spans_minutes' in detection must be a list of whole numbers of minutes from 1 to 180.")
+    stability = det.get("state_stability_minutes", max(spans))
+    if not isinstance(stability, int) or stability < max(spans):
+        raise ConfigError("'state_stability_minutes' in detection must be a whole number at least as long as the longest "
+                          "feature span, otherwise scored windows would mix idle and loaded behaviour.")
+
     metrics = _require(cfg, "metrics", "the file", list)
     if not metrics:
         raise ConfigError("'metrics' must list at least one metric.")

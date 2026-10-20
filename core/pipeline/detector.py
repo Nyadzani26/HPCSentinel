@@ -26,6 +26,7 @@ MIN_TRAIN_ROWS_FOREST = 200
 MIN_PEERS = 3
 DEFAULT_WEIGHTS = {"baseline": 0.4, "peer": 0.2, "model": 0.4}
 STATE_KEY = "__load_state"
+LONG_SPAN = "__mean_60"  # slow features inform the model only; they would mix regimes in a per-feature z-score
 
 
 def _mad_scale(values: np.ndarray) -> float:
@@ -51,6 +52,7 @@ def base_metric(feature: str) -> str:
 class Detector:
     baselines: dict = field(default_factory=dict)   # node -> state -> feature -> [median, scale, n]
     pooled: dict = field(default_factory=dict)      # feature -> pooled scale across all nodes
+    group_baselines: dict = field(default_factory=dict)  # "group|state" -> feature -> [median, scale, n]
     forests: dict = field(default_factory=dict)     # "group|state" -> dict with model and calibration
     weights: dict = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
 
@@ -75,6 +77,20 @@ class Detector:
                     f: [float(part[f].median()), _mad_scale(part[f].to_numpy(dtype=float)), int(part[f].notna().sum())]
                     for f in features if f in part and part[f].notna().sum() >= MIN_TRAIN_ROWS_BASELINE
                 }
+        # Pooled baselines per group and load state: used for a node that has too little data of its
+        # own in that state (cold start, rarely-loaded nodes), so it is compared with its group.
+        pooled_rows: dict[str, list[pd.DataFrame]] = {}
+        for node, table in tables.items():
+            if table.empty:
+                continue
+            for state, part in table.groupby(STATE_KEY):
+                pooled_rows.setdefault(f"{groups.get(node, 'default')}|{state}", []).append(part.drop(columns=[STATE_KEY]))
+        for key, parts in pooled_rows.items():
+            data = pd.concat(parts, sort=False)
+            if len(data) >= MIN_TRAIN_ROWS_BASELINE * 3:
+                det.group_baselines[key] = {
+                    f: [float(data[f].median()), _mad_scale(data[f].to_numpy(dtype=float)), int(data[f].notna().sum())]
+                    for f in data.columns if data[f].notna().sum() >= MIN_TRAIN_ROWS_BASELINE}
         # one forest per (group, load state)
         by_key: dict[str, list[pd.DataFrame]] = {}
         for node, table in tables.items():
@@ -101,13 +117,19 @@ class Detector:
     def _floor(self, feature: str, median: float) -> float:
         return max(0.1 * self.pooled.get(feature, 0.0), 0.05 * abs(median), 1e-9)
 
-    def baseline_deviations(self, node: str, state: str, feats: dict) -> dict:
-        """{feature: (z, median, observed)} against the node's own baseline for this state."""
-        table = self.baselines.get(node, {}).get(state)
+    def baseline_deviations(self, node: str, state: str, feats: dict, group: str = "default") -> dict:
+        """{feature: (z, median, observed)} against the node's own baseline for this state.
+
+        A node with too little data of its own in this state falls back to its group's pooled
+        baseline for the state.
+        """
+        table = self.baselines.get(node, {}).get(state) or self.group_baselines.get(f"{group}|{state}")
         if not table:
             return {}
         out = {}
         for feature, value in feats.items():
+            if feature.endswith(LONG_SPAN):
+                continue
             ref = table.get(feature)
             if ref is None or value is None or math.isnan(value):
                 continue
@@ -166,7 +188,7 @@ class Detector:
         """Score one node. Returns the three views, the combined score and the evidence."""
         state = states[node]
         feats = window[node]
-        base = self.baseline_deviations(node, state, feats)
+        base = self.baseline_deviations(node, state, feats, group)
         peer = self.peer_deviations(node, group_nodes, window, states)
         model = model_value if model_value is not None else self.model_score(group, state, feats)
         b = _aggregate({f: v[0] for f, v in base.items()})
@@ -177,12 +199,13 @@ class Detector:
     # ---- storage --------------------------------------------------------------------------
     def save(self, path) -> None:
         joblib.dump({"forests": self.forests, "pooled": self.pooled, "baselines": self.baselines,
-                     "weights": self.weights}, path)
+                     "group_baselines": self.group_baselines, "weights": self.weights}, path)
 
     @classmethod
     def load(cls, path) -> "Detector":
         data = joblib.load(path)
-        return cls(baselines=data["baselines"], pooled=data["pooled"], forests=data["forests"], weights=data["weights"])
+        return cls(baselines=data["baselines"], pooled=data["pooled"], forests=data["forests"],
+                   group_baselines=data.get("group_baselines", {}), weights=data["weights"])
 
 
 def _isnan(value) -> bool:

@@ -57,8 +57,13 @@ class FeatureTests(TestCase):
 
     def test_window_features_are_named_by_span(self):  # FR-10
         table = feat.feature_table(self.frame(), config())
-        for name in ("cpu_busy__mean_5", "cpu_busy__mean_15", "cpu_busy__mean_60", "cpu_busy__std_15"):
+        for name in ("cpu_busy__mean_5", "cpu_busy__mean_15", "cpu_busy__std_15"):
             self.assertIn(name, table.columns)
+        self.assertNotIn("cpu_busy__mean_60", table.columns)  # 60 minutes only when configured with equal stability
+
+    def test_spans_are_configurable(self):  # NFR-10
+        table = feat.feature_table(self.frame(minutes=300), config(feature_spans_minutes=[5, 15, 60], state_stability_minutes=60))
+        self.assertIn("cpu_busy__mean_60", table.columns)
 
     def test_missing_data_makes_a_window_unreliable(self):  # FR-09, BR-02
         table = feat.feature_table(self.frame(gap=(100, 130)), config())
@@ -104,7 +109,7 @@ class PipelineTests(TestCase):
     def test_replay_detects_an_injected_fault_with_an_explanation(self):  # FR-15, FR-19
         model = self.trained()
         day3 = T0 + timedelta(days=2)
-        jobs.replay(self.cfg, self.prom, model, day3, day3 + timedelta(hours=16), stride_minutes=2)
+        jobs.replay(self.cfg, self.prom, model, day3, day3 + timedelta(hours=18), stride_minutes=2)  # spans both load changes (09:00, 17:00)
         alerts = Alert.objects.filter(mode=Alert.Mode.REPLAY)
         hit = alerts.filter(node__name="compute03", opened_at__gte=self.fault_start,
                             opened_at__lte=self.fault_end + timedelta(minutes=30))
@@ -168,6 +173,22 @@ class PipelineTests(TestCase):
             jobs._drop_excluded = original
         self.assertEqual(len(captured["extra"]), 1)
         self.assertEqual(captured["extra"][0][0], now - timedelta(hours=11))
+
+    def test_a_node_with_too_little_loaded_data_uses_its_groups_baseline(self):  # cold start
+        import pandas as pd
+        from core.pipeline.detector import Detector, STATE_KEY
+        rng_cols = ["cpu_busy__mean_5", "cpu_busy__mean_15"]
+        def table(n, state, seed):
+            import numpy as np
+            r = np.random.default_rng(seed)
+            return pd.DataFrame({c: r.normal(0.8, 0.02, n) for c in rng_cols} | {STATE_KEY: state},
+                                index=pd.date_range("2026-10-01", periods=n, freq="5min", tz="UTC"))
+        tables = {f"n{i}": table(60, "LOADED", i) for i in range(1, 6)}
+        tables["rare"] = table(5, "LOADED", 99)  # only five loaded windows of its own
+        det = Detector.train(tables, {n: "default" for n in tables})
+        self.assertNotIn("LOADED", det.baselines.get("rare", {}))
+        dev = det.baseline_deviations("rare", "LOADED", {"cpu_busy__mean_15": 0.2}, "default")
+        self.assertGreater(dev["cpu_busy__mean_15"][0], 5)  # judged against the group, so 0.2 is far from 0.8
 
     def test_excluded_periods_are_not_learned_from(self):  # FR-16, BR-03
         ExcludedPeriod.objects.create(start_at=T0 + timedelta(hours=5), end_at=T0 + timedelta(hours=8),

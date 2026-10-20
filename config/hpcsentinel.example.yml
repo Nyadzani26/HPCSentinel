@@ -29,7 +29,8 @@ detection:
   alert_threshold: 3.0              # combined score above which a window is abnormal
   window_minutes: 15                # span of data used to prepare each window
   load_idle_cpu_busy: 0.10          # CPU busy ratio below which a node counts as idle
-  state_stability_minutes: 60       # a node is scored only after its load state has been steady this long
+  feature_spans_minutes: [5, 15]    # rolling windows used as features; add 60 only with state_stability_minutes: 60
+  state_stability_minutes: 15       # a node is scored only after its load state has been steady this long
   train_stride_minutes: 5           # spacing of the windows used for learning
   relearn_hours: 168                # re-learn baselines this often; 0 turns scheduled re-learning off (FR-17)
   relearn_days: 14                  # length of the rolling window of recent data used
@@ -61,16 +62,16 @@ metrics:
     query: 'sum by (instance) (increase(node_edac_correctable_errors_total{$SELECTOR}[15m]))'
   - name: net_rx_bytes_rate
     group: network
-    query: 'rate(node_network_receive_bytes_total{$SELECTOR,device="eth0"}[2m])'
+    query: 'sum by (instance) (rate(node_network_receive_bytes_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m]))'
   - name: net_tx_bytes_rate
     group: network
-    query: 'rate(node_network_transmit_bytes_total{$SELECTOR,device="eth0"}[2m])'
+    query: 'sum by (instance) (rate(node_network_transmit_bytes_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m]))'
   - name: net_error_rate
     group: network
-    query: 'rate(node_network_receive_errs_total{$SELECTOR,device="eth0"}[2m]) + rate(node_network_transmit_errs_total{$SELECTOR,device="eth0"}[2m])'
+    query: 'sum by (instance) (rate(node_network_receive_errs_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m])) + sum by (instance) (rate(node_network_transmit_errs_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m]))'
   - name: net_drop_rate
     group: network
-    query: 'rate(node_network_receive_drop_total{$SELECTOR,device="eth0"}[2m]) + rate(node_network_transmit_drop_total{$SELECTOR,device="eth0"}[2m])'
+    query: 'sum by (instance) (rate(node_network_receive_drop_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m])) + sum by (instance) (rate(node_network_transmit_drop_total{$SELECTOR,device!~"lo|veth.*|docker.*|virbr.*|br-.*"}[2m]))'
   - name: disk_busy_ratio
     group: storage
     query: 'sum by (instance) (rate(node_disk_io_time_seconds_total{$SELECTOR}[2m]))'

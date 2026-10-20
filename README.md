@@ -57,6 +57,8 @@ builds a synthetic fleet, trains on three normal days and runs the real live cyc
 
 ## Configuration
 
+`config/hpcsentinel.example.yml` is generic. `config/hpcsentinel.ranger.yml` is the same file adapted to the SPU Ranger test cluster (job selector and node naming only).
+
 `config/hpcsentinel.yml` defines which metrics are used, how Prometheus names the nodes and how
 the detector behaves (retrieval interval, persistence windows, threshold). Every query must contain
 `$SELECTOR`, which limits it to the configured nodes. A malformed file is rejected with a message

@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from core.config import ConfigError, build_query, load_config, node_name, validate
 
@@ -76,3 +76,27 @@ class ConfigTests(SimpleTestCase):
         cfg["cluster"]["node_name_template"] = "compute{n}"
         self.assertEqual(node_name(cfg, "10.10.10.116:9100"), "compute16")
         self.assertIsNone(node_name(cfg, "192.168.1.5:9100"))
+
+
+class SpanConfigTests(TestCase):
+    def cfg(self, **det):
+        import yaml
+        from pathlib import Path
+        c = yaml.safe_load((Path(__file__).resolve().parents[2] / "config" / "hpcsentinel.example.yml").read_text())
+        c["detection"].update(det)
+        return c
+
+    def test_stability_shorter_than_the_longest_span_is_rejected(self):
+        from core.config import ConfigError, validate
+        with self.assertRaises(ConfigError):
+            validate(self.cfg(feature_spans_minutes=[5, 15, 60], state_stability_minutes=15))
+
+    def test_valid_longer_span_is_accepted(self):
+        from core.config import validate
+        validate(self.cfg(feature_spans_minutes=[5, 15, 60], state_stability_minutes=60))
+
+    def test_bad_spans_are_rejected(self):
+        from core.config import ConfigError, validate
+        for bad in ([], [0], ["a"], [500]):
+            with self.assertRaises(ConfigError):
+                validate(self.cfg(feature_spans_minutes=bad))

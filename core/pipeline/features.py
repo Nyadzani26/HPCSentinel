@@ -10,7 +10,7 @@ import pandas as pd
 
 from core.config import build_query
 
-SPANS_MINUTES = (5, 15, 60)
+SPANS_MINUTES = (5, 15)
 RESAMPLE = "1min"
 
 
@@ -56,7 +56,7 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     function serves training, replay and the live cycle, which is what keeps them
     consistent (D-5). For every instant the table holds:
 
-    * mean over 5, 15 and 60 minutes and standard deviation over 15 minutes per metric,
+    * mean over each feature span (default 5 and 15 minutes) and standard deviation over 15 minutes per metric,
       named like 'cpu_busy__mean_15';
     * '__load_state': IDLE, LOADED or TRANSITION from the CPU busy ratio (BR-09);
     * '__quality': RELIABLE or UNRELIABLE. A window is unreliable if too much of the last
@@ -66,7 +66,8 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     det = cfg["detection"]
     window = int(det.get("window_minutes", 15))
     out = {}
-    for span in SPANS_MINUTES:
+    spans = [int(x) for x in det.get("feature_spans_minutes", SPANS_MINUTES)]
+    for span in spans:
         means = frame.rolling(span, min_periods=1).mean()
         for column in frame.columns:
             out[f"{column}__mean_{span}"] = means[column]
@@ -76,16 +77,19 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     table = pd.DataFrame(out, index=frame.index)
 
     # Load state (BR-09). A node is LOADED only if its 5-minute median CPU busy ratio has stayed
-    # above the threshold for the whole stability period (by default 60 minutes, the longest
-    # feature span), IDLE only if it has stayed below it. A window that straddles a change of
-    # state is a transition and is not scored, because every feature of a scored window then
-    # describes a single regime and neither baseline fits a mixture. The cost is that a node
-    # is not scored for up to an hour after its load changes.
+    # above the threshold for the whole stability period, IDLE only if it has stayed below it.
+    # The stability period defaults to the longest feature span (15 minutes): every feature of a
+    # scored window then describes one regime. A window that straddles a change of state is a
+    # transition and is not scored, because neither baseline fits a mixture. Longer feature
+    # spans (for example 60 minutes) need an equally long stability period, so a node is then
+    # not scored for that long after its load changes. Tests on synthetic data showed that
+    # 15-minute stability with a 60-minute feature gives false alerts on every node at every
+    # job start and end; 15 minutes with 5 and 15 minute features gives none.
     if "cpu_busy" in frame:
         raw = (frame["cpu_busy"].rolling(5, min_periods=1).median() >= det.get("load_idle_cpu_busy", 0.10)).astype(int)
     else:
         raw = pd.Series(0, index=frame.index)
-    stability = int(det.get("state_stability_minutes", max(SPANS_MINUTES)))
+    stability = int(det.get("state_stability_minutes", max(spans)))
     low, high = raw.rolling(stability, min_periods=1).min(), raw.rolling(stability, min_periods=1).max()
     table[STATE_COL] = ["LOADED" if lo == 1 else "IDLE" if hi == 0 else "TRANSITION" for lo, hi in zip(low, high)]
 

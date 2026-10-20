@@ -18,7 +18,7 @@ the report that is not "Done" or "Pending evidence" must be reported in report S
 | FR-07 | Node groups; peers compared within a group | Done | `NodeGroup`, `engine.score_rows` (groups the peer comparison) | `test_replay_detects_...` (default group); group assignment is through the admin site |
 | FR-08 | Retrieve at a configurable interval, read-only | Done | `pipeline/cycle.py`, `services/prometheus.py`, `run_worker` | `test_prometheus`, `test_cycle` |
 | FR-09 | Data-quality checks (gaps, staleness, identical readings) | Done | `features.feature_table` (gaps, staleness, transitions); `readiness.check` (identical readings) | `FeatureTests`, `test_readiness_report` |
-| FR-10 | Rates and rolling features | Done | `features.py` (rates come from the PromQL in the configuration) | `FeatureTests` |
+| FR-10 | Rates and rolling features | Done | `features.py`: means over 5 and 15 minutes and standard deviation over 15 minutes (spans configurable); rates come from the PromQL in the configuration | `FeatureTests` |
 | FR-11 | Load state from the node's own metrics | Done | `features.feature_table` | `FeatureTests` |
 | FR-12 | Baselines per node and load state | Done | `detector.Detector.train` | `PipelineTests` |
 | FR-13 | Tree-based model, stored with a version | Done | `detector.py`, `jobs.train`, `ModelVersion` | `test_training_stores_a_model_version` |
@@ -60,7 +60,7 @@ the report that is not "Done" or "Pending evidence" must be reported in report S
 
 ## Known limitations
 
-* A node is not scored for up to an hour after its load state changes (a 60-minute stability rule), so a fault that begins exactly at a job start is detected later.
+* A node is not scored for up to 15 minutes after its load state changes (a stability rule, 15 minutes by default, equal to the longest feature span), so a fault that begins exactly at a job start is detected later. Because load state comes from CPU use alone, a fault that itself drives CPU above 10% on an idle node (for example a CPU hog) looks like a legitimate job and cannot be told apart without scheduler data (FR-33, deferred).
 * Load state comes from the node's own CPU use, not from the job scheduler (FR-33 deferred).
 * Hardware sensors are not used (FR-32 deferred). The platform sends no notifications (FR-31 deferred).
 * Assignment of nodes to groups is made in the Django administration site; one default group is used otherwise.
