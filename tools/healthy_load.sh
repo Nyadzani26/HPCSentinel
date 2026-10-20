@@ -12,10 +12,14 @@ MIN="${1:-90}"
 SEC=$((MIN * 60))
 GAP=$((MIN + 15))
 JOB="python3 $HERE/loadgen.py job --seconds $SEC"
+# Slurm confines a job to the cores it asks for, so ask for 14 of the 16 (the rest stay free for fault jobs)
+# and reserve a quarter of the node memory (the job itself uses at most about 18 percent).
+MEM_MB=$(scontrol show node compute01 | grep -o 'RealMemory=[0-9]*' | cut -d= -f2)
+RES=$((MEM_MB * 25 / 100))
 
 submit() {  # name nodelist begin
-  sbatch --parsable -p batch -J "$1" -N 12 --ntasks-per-node=1 -w "$2" --time=$((MIN + 10)) \
-         ${3:+--begin="$3"} --wrap "srun $JOB" >/dev/null
+  sbatch --parsable -p batch -J "$1" -N 12 --ntasks-per-node=1 --cpus-per-task=14 --mem="$RES" -w "$2" --time=$((MIN + 10)) \
+         ${3:+--begin="$3"} --wrap "srun --cpus-per-task=14 --mem=0 $JOB" >/dev/null
   echo "submitted $1 on $2 ${3:+starting $3}"
 }
 

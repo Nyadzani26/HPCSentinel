@@ -11,6 +11,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 T0="${1:?give the window start as HH:MM, for example 17:30}"
 LOG="$HOME/HPCSentinel/experiments-$(date +%Y%m%d).csv"
 DUR=900   # seconds per fault
+MEM_MB=$(scontrol show node compute01 | grep -o 'RealMemory=[0-9]*' | cut -d= -f2)
+BGMEM=$((MEM_MB * 25 / 100))     # background job reservation
+MEMFAULT=$((MEM_MB * 55 / 100))  # memory fault reservation (it holds half of the memory)
+SMALL=$((MEM_MB * 5 / 100))      # other faults
 
 [ -f "$LOG" ] || echo "node,anomaly_type,start,end,intensity" > "$LOG"
 
@@ -18,16 +22,17 @@ at() {  # offset-minutes -> a Slurm --begin value (HH:MM) computed from T0
   date -d "@$(( $(date -d "$T0" +%s) + $1 * 60 ))" +%H:%M
 }
 bg() {  # background healthy job on a block of nodes
-  sbatch --parsable -p batch -J "bg-$1" -N 12 --ntasks-per-node=1 -w "$2" --time=170 --begin="$T0" \
-    --wrap "srun python3 $HERE/loadgen.py job --seconds 9600" >/dev/null
+  sbatch --parsable -p batch -J "bg-$1" -N 12 --ntasks-per-node=1 --cpus-per-task=14 --mem="$BGMEM" -w "$2" --time=170 --begin="$T0" \
+    --wrap "srun --cpus-per-task=14 --mem=0 python3 $HERE/loadgen.py job --seconds 9600" >/dev/null
 }
 single() {  # offset type node
-  sbatch --parsable -p batch -J "fault-$2-$3" -N 1 -w "$3" --oversubscribe --time=25 --begin="$(at "$1")" \
+  local mem=$SMALL; [ "$2" = MEMORY ] && mem=$MEMFAULT
+  sbatch --parsable -p batch -J "fault-$2-$3" -N 1 -w "$3" --mem="$mem" --time=25 --begin="$(at "$1")" \
     --wrap "$HERE/fault_run.sh $2 $DUR $LOG" >/dev/null
   echo "$(at "$1")  $2 on $3"
 }
 pair() {  # offset sender peer
-  sbatch --parsable -p batch -J "fault-NETWORK-$2" -N 2 -w "$2,$3" --oversubscribe --time=25 --begin="$(at "$1")" \
+  sbatch --parsable -p batch -J "fault-NETWORK-$2" -N 2 -w "$2,$3" --mem="$SMALL" --time=25 --begin="$(at "$1")" \
     --wrap "$HERE/fault_run.sh NETWORK $DUR $LOG $3" >/dev/null
   echo "$(at "$1")  NETWORK $2 -> $3"
 }

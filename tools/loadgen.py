@@ -71,7 +71,7 @@ def run_job(seconds, mem_frac):
     deadline = time.time() + seconds
     rng = random.Random(zlib.crc32(socket.gethostname().encode()))
     duty = rng.uniform(0.75, 1.0)
-    cores = os.cpu_count() or 1
+    cores = len(os.sched_getaffinity(0))
     procs = [mp.Process(target=spin, args=(deadline, duty)) for _ in range(cores)]
     size = int(mem_total_bytes() * mem_frac * rng.uniform(0.8, 1.2))
     procs.append(mp.Process(target=hold_memory, args=(deadline, size)))
@@ -152,9 +152,9 @@ def main():
     a = ap.parse_args()
     print(f"{socket.gethostname()} {a.mode} for {a.seconds}s", flush=True)
     if a.mode == "job":
-        run_job(a.seconds, a.mem_frac if a.mem_frac is not None else 0.2)
+        run_job(a.seconds, a.mem_frac if a.mem_frac is not None else 0.15)
     elif a.mode == "mem":
-        run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.6)
+        run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.5)
     elif a.mode == "io":
         run_io(a.seconds, a.path)
     elif a.mode == "net-recv":

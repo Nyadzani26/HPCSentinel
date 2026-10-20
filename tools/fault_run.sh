@@ -20,9 +20,9 @@ log() {  # node type start end intensity
 case "$TYPE" in
   MEMORY)
     START="$(now)"
-    python3 "$HERE/loadgen.py" mem --seconds "$SECS" --mem-frac 0.6
+    python3 "$HERE/loadgen.py" mem --seconds "$SECS" --mem-frac 0.5
     END="$(now)"
-    log "$ME" MEMORY "$START" "$END" "60 percent of memory held and touched"
+    log "$ME" MEMORY "$START" "$END" "50 percent of memory held and touched"
     ;;
   IO)
     START="$(now)"
