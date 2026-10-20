@@ -100,3 +100,19 @@ class SpanConfigTests(TestCase):
         for bad in ([], [0], ["a"], [500]):
             with self.assertRaises(ConfigError):
                 validate(self.cfg(feature_spans_minutes=bad))
+
+
+class MinEffectConfigTests(SpanConfigTests):
+    def test_min_effect_is_validated(self):
+        from core.config import ConfigError, validate
+        validate(self.cfg(min_effect={"cpu_busy": 0.03}))
+        for bad in ([1], {"cpu_busy": -1}, {"cpu_busy": "x"}, {1: 0.1}, {"cpu_busy": True}):
+            with self.assertRaises(ConfigError):
+                validate(self.cfg(min_effect=bad))
+
+    def test_the_shipped_configs_are_valid(self):
+        from pathlib import Path
+        from core.config import load_config
+        base = Path(__file__).resolve().parents[2] / "config"
+        for name in ("hpcsentinel.example.yml", "hpcsentinel.ranger.yml"):
+            self.assertIn("cpu_busy", load_config(base / name)["detection"]["min_effect"])

@@ -25,3 +25,21 @@ is compared with its group's pooled baseline for that state (`Detector.group_bas
 
 Network queries sum all physical interfaces (excluding loopback, virtual and bridge devices) instead of naming
 one interface, so the same configuration works on clusters whose interfaces are not called eth0.
+
+## Practical-significance floor (`min_effect`)
+
+Observed on the SPU Ranger cluster on 20 October 2026: after an idle period the learned spread of `cpu_busy` was
+about 0.0002, so an idle node whose CPU rose to 1.1 percent scored the maximum deviation (10) and, with the model and peer
+scores, produced an alert. Nobody would act on that. A learned spread is not a measure of what matters.
+
+Each metric can therefore carry a floor in the metric's own unit (`detection.min_effect`): a metric must move by at least
+that much before the move counts, whatever its learned spread. The floor is applied to the baseline and the peer
+comparison (half the value for the spread features), is stored inside the saved model so a replay uses the floor the model
+was trained with, and defaults to none for unlisted metrics. The shipped configurations list conservative values.
+
+Measured on the CHPC synthetic dataset (validation month, August; the test month was not used), with floors chosen from the
+metric scales before measuring: false alerts fell from 1.75 to 1.39 per node-day at the same event recall (0.64), and the
+median warning before a failure fell from 3.9 to 3.3 hours. Doubling the floors lowered false alerts further to 1.04 but
+cost recall (0.57), which is why the defaults are not larger. The gain on that dataset is modest because its main source of
+false alerts is different: five normal workload types are folded into one "loaded" state. That is a separate improvement
+(learned operating regimes) and is not part of this change.

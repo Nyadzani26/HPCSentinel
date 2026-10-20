@@ -98,7 +98,8 @@ def train(cfg: dict, client, start, end, label: str | None = None, user: User | 
             groups[node.name] = node.group.name if node.group else DEFAULT_GROUP
     if not tables:
         raise JobError("There was no reliable data to learn from in that period.")
-    detector = Detector.train(tables, groups, weights=cfg["detection"].get("weights"))
+    detector = Detector.train(tables, groups, weights=cfg["detection"].get("weights"),
+                               min_effect=cfg["detection"].get("min_effect"))
     version_no = ModelVersion.objects.count() + 1
     label = label or f"model-{version_no:03d}"
     store = Path(settings.MODEL_STORE)

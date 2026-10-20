@@ -324,3 +324,35 @@ class AlertRuleTests(TestCase):
         self.assertEqual((top["metric"], top["observed"], top["expected"]), ("cpu_busy", 0.9, 0.02))
         self.assertEqual(top["deviation_pct"], 4400.0)
         self.assertEqual(alert.explanation["load_state"], "IDLE")
+
+
+class MinEffectTests(TestCase):
+    """A practical-significance floor stops tiny changes in near-constant metrics from scoring the maximum."""
+
+    def table(self):
+        import numpy as np
+        rng = np.random.default_rng(0)
+        idx = pd.date_range("2026-10-01", periods=400, freq="2min", tz="UTC")
+        data = {"cpu_busy__mean_5": 0.0002 + rng.normal(0, 0.00002, 400),
+                "cpu_busy__mean_15": 0.0002 + rng.normal(0, 0.00002, 400), "__load_state": "IDLE"}
+        return pd.DataFrame(data, index=idx)
+
+    def score(self, min_effect, observed):
+        from core.pipeline.detector import Detector
+        det = Detector.train({"n1": self.table()}, {"n1": "g"}, min_effect=min_effect)
+        dev = det.baseline_deviations("n1", "IDLE", {"cpu_busy__mean_5": observed, "cpu_busy__mean_15": observed}, "g")
+        return dev["cpu_busy__mean_15"][0]
+
+    def test_a_one_percent_blip_is_the_maximum_without_a_floor_and_small_with_one(self):
+        self.assertEqual(self.score({}, 0.011), 10.0)
+        self.assertLess(self.score({"cpu_busy": 0.03}, 0.011), 0.5)
+
+    def test_a_large_change_still_scores_high_with_a_floor(self):
+        self.assertGreaterEqual(self.score({"cpu_busy": 0.03}, 0.30), 9.0)
+
+    def test_the_floor_survives_saving_and_loading(self):
+        from core.pipeline.detector import Detector
+        det = Detector.train({"n1": self.table()}, {"n1": "g"}, min_effect={"cpu_busy": 0.03})
+        with tempfile.TemporaryDirectory() as d:
+            det.save(Path(d) / "m.joblib")
+            self.assertEqual(Detector.load(Path(d) / "m.joblib").min_effect, {"cpu_busy": 0.03})

@@ -55,13 +55,19 @@ class Detector:
     group_baselines: dict = field(default_factory=dict)  # "group|state" -> feature -> [median, scale, n]
     forests: dict = field(default_factory=dict)     # "group|state" -> dict with model and calibration
     weights: dict = field(default_factory=lambda: dict(DEFAULT_WEIGHTS))
+    min_effect: dict = field(default_factory=dict)  # metric -> smallest change that matters, in the metric's own unit
 
     # ---- learning -------------------------------------------------------------------------
     @classmethod
     def train(cls, tables: dict[str, pd.DataFrame], groups: dict[str, str], seed: int = 42,
-              weights: dict | None = None) -> "Detector":
-        """tables: {node: feature_table}; groups: {node: group name}."""
-        det = cls(weights=dict(weights or DEFAULT_WEIGHTS))
+              weights: dict | None = None, min_effect: dict | None = None) -> "Detector":
+        """tables: {node: feature_table}; groups: {node: group name}.
+
+        `min_effect` is the practical-significance floor: a metric must move by at least this much before the
+        move counts, however tight the learned spread is. Without it a metric that is almost constant (idle CPU,
+        error counters) turns a change nobody would care about into the maximum score.
+        """
+        det = cls(weights=dict(weights or DEFAULT_WEIGHTS), min_effect=dict(min_effect or {}))
         features = sorted({c for t in tables.values() if not t.empty for c in t.columns if c != STATE_KEY})
         all_rows = pd.concat([t for t in tables.values() if not t.empty], sort=False) if tables else pd.DataFrame()
         for feature in features:
@@ -115,7 +121,10 @@ class Detector:
 
     # ---- scoring --------------------------------------------------------------------------
     def _floor(self, feature: str, median: float) -> float:
-        return max(0.1 * self.pooled.get(feature, 0.0), 0.05 * abs(median), 1e-9)
+        effect = self.min_effect.get(base_metric(feature), 0.0)
+        if "__std_" in feature:
+            effect *= 0.5  # a spread is a smaller quantity than a level
+        return max(0.1 * self.pooled.get(feature, 0.0), 0.05 * abs(median), effect, 1e-9)
 
     def baseline_deviations(self, node: str, state: str, feats: dict, group: str = "default") -> dict:
         """{feature: (z, median, observed)} against the node's own baseline for this state.
@@ -199,13 +208,15 @@ class Detector:
     # ---- storage --------------------------------------------------------------------------
     def save(self, path) -> None:
         joblib.dump({"forests": self.forests, "pooled": self.pooled, "baselines": self.baselines,
-                     "group_baselines": self.group_baselines, "weights": self.weights}, path)
+                     "group_baselines": self.group_baselines, "weights": self.weights,
+                     "min_effect": self.min_effect}, path)
 
     @classmethod
     def load(cls, path) -> "Detector":
         data = joblib.load(path)
         return cls(baselines=data["baselines"], pooled=data["pooled"], forests=data["forests"],
-                   group_baselines=data.get("group_baselines", {}), weights=data["weights"])
+                   group_baselines=data.get("group_baselines", {}), weights=data["weights"],
+                   min_effect=data.get("min_effect", {}))
 
 
 def _isnan(value) -> bool:

@@ -59,6 +59,12 @@ def validate(cfg: dict) -> dict:
         raise ConfigError("'state_stability_minutes' in detection must be a whole number at least as long as the longest "
                           "feature span, otherwise scored windows would mix idle and loaded behaviour.")
 
+    effects = det.get("min_effect", {})
+    if not isinstance(effects, dict) or not all(isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool)
+                                                 and v >= 0 for k, v in effects.items()):
+        raise ConfigError("'min_effect' in detection must map metric names to the smallest change that matters "
+                          "(a number, zero or more).")
+
     metrics = _require(cfg, "metrics", "the file", list)
     if not metrics:
         raise ConfigError("'metrics' must list at least one metric.")
