@@ -87,11 +87,10 @@ class TriageTests(TestCase):
         self.alert.refresh_from_db()
         self.assertEqual(self.alert.status, "ACKNOWLEDGED")
 
-    def test_cannot_close_an_unacknowledged_alert(self):  # BR-05
-        response = self.post("alert_close", {"outcome": "FALSE_ALARM"})
-        self.assertContains(response, "must be acknowledged")
+    def test_an_alert_can_be_reviewed_without_acknowledging_first(self):  # BR-05 relaxed
+        self.post("alert_close", {"outcome": "FALSE_ALARM"})
         self.alert.refresh_from_db()
-        self.assertEqual(self.alert.status, "OPEN")
+        self.assertEqual((self.alert.status, self.alert.outcome), ("CLOSED", "FALSE_ALARM"))
 
     def test_operator_cannot_reopen(self):  # BR-04, BR-07
         self.post("alert_acknowledge")
@@ -109,6 +108,104 @@ class TriageTests(TestCase):
         self.post("alert_reopen", {"note": "new evidence"})
         self.alert.refresh_from_db()
         self.assertEqual((self.alert.status, self.alert.outcome), ("ACKNOWLEDGED", None))
+
+    def test_one_click_review_from_the_list_returns_to_the_list(self):
+        self.alert.status = "RESOLVED"
+        self.alert.save()
+        response = self.client.post(reverse("alert_quick", args=[self.alert.pk]),
+                                    {"outcome": "FALSE_ALARM", "next": "/alerts/?status=review"}, follow=True)
+        self.assertEqual(response.redirect_chain[-1][0], "/alerts/?status=review")
+        self.assertContains(response, "marked as false alarm")
+        self.alert.refresh_from_db()
+        self.assertEqual((self.alert.status, self.alert.outcome), ("CLOSED", "FALSE_ALARM"))
+
+    def test_one_click_review_will_not_redirect_to_another_site(self):
+        response = self.client.post(reverse("alert_quick", args=[self.alert.pk]),
+                                    {"outcome": "CONFIRMED", "next": "https://evil.example/phish"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], reverse("alert_list"))
+
+    def test_one_click_review_needs_a_valid_outcome(self):
+        response = self.client.post(reverse("alert_quick", args=[self.alert.pk]), {"outcome": "MAYBE"}, follow=True)
+        self.assertContains(response, "Choose Real fault or False alarm")
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, "OPEN")
+
+    def test_bulk_review(self):
+        a = make_alert(make_node("compute05"), status="RESOLVED")
+        b = make_alert(make_node("compute06"), status="RESOLVED")
+        c = make_alert(make_node("compute07"), status="RESOLVED")
+        response = self.client.post(reverse("alert_bulk"), {"ids": [a.pk, b.pk], "outcome": "FALSE_ALARM"}, follow=True)
+        self.assertContains(response, "2 alerts marked as false alarm")
+        for alert, expected in ((a, "CLOSED"), (b, "CLOSED"), (c, "RESOLVED")):
+            alert.refresh_from_db()
+            self.assertEqual(alert.status, expected)
+        self.assertEqual(AlertAction.objects.filter(alert=a).get().user, self.op)
+
+    def test_bulk_review_needs_a_selection_and_an_outcome(self):
+        self.assertContains(self.client.post(reverse("alert_bulk"), {"outcome": "CONFIRMED"}, follow=True), "Tick at least one alert")
+        self.assertContains(self.client.post(reverse("alert_bulk"), {"ids": [self.alert.pk]}, follow=True), "Choose Real fault or False alarm")
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, "OPEN")
+
+    def test_bulk_review_requires_sign_in(self):
+        self.client.logout()
+        self.assertEqual(self.client.post(reverse("alert_bulk"), {"ids": [self.alert.pk], "outcome": "CONFIRMED"}).status_code, 302)
+        self.alert.refresh_from_db()
+        self.assertEqual(self.alert.status, "OPEN")
+
+    def test_tabs_separate_active_recovered_and_reviewed_alerts(self):
+        make_alert(make_node("compute05"), status="RESOLVED")
+        make_alert(make_node("compute09"), status="CLOSED", outcome="FALSE_ALARM")
+        listing = lambda tab: self.client.get(reverse("alert_list") + f"?status={tab}").content.decode()  # noqa: E731
+        active, review, closed = listing("live"), listing("review"), listing("closed")
+        self.assertIn("compute01", active); self.assertNotIn("compute05", active); self.assertNotIn("compute09", active)
+        self.assertIn("compute05", review); self.assertNotIn("compute01", review)
+        self.assertIn("compute09", closed); self.assertNotIn("compute05", closed)
+        self.assertIn("Needs review<span class=\"n\">1</span>", active)   # counts show without opening the tab
+
+    def test_empty_active_tab_points_to_recovered_alerts(self):
+        self.alert.status = "RESOLVED"
+        self.alert.save()
+        page = self.client.get(reverse("alert_list")).content.decode()
+        self.assertIn("Nothing is happening right now", page)
+        self.assertIn("waiting for an optional review", page)
+
+    def test_a_recovered_alert_page_says_it_ended_by_itself_and_offers_review(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        self.alert.status = "RESOLVED"
+        self.alert.last_seen_at = self.alert.opened_at + timedelta(minutes=25)
+        self.alert.recovered_at = timezone.now()
+        self.alert.resolved_reason = "recovered"
+        self.alert.recurrences = 2
+        self.alert.save()
+        page = self.client.get(reverse("alert_detail", args=[self.alert.pk])).content.decode()
+        for text in ("Ended by itself", "lasted 25 min", "came back 2 times", "Was it a real fault?", "Save review"):
+            self.assertIn(text, page)
+        self.assertNotIn("I'm looking into it", page)   # nothing to look into any more
+
+    def test_an_alert_that_stopped_reporting_says_so(self):
+        from django.utils import timezone
+        self.alert.status, self.alert.resolved_reason, self.alert.recovered_at = "RESOLVED", "no_data", timezone.now()
+        self.alert.save()
+        self.assertContains(self.client.get(reverse("alert_detail", args=[self.alert.pk])), "because the node stopped reporting")
+
+    def test_an_updated_alert_shows_its_latest_state(self):
+        self.alert.explanation = {"summary": "x", "load_state": "IDLE", "persistence_windows": 3, "threshold": 3.0, "scores": {},
+                                  "contributors": [{"metric": "cpu_busy", "observed": 0.5, "expected": 0.1, "z": 5.0, "compared_with": "own baseline"}],
+                                  "latest": {"at": "2026-10-21T10:00:00+00:00", "load_state": "IDLE", "scores": {},
+                                             "contributors": [{"metric": "cpu_busy", "observed": 0.9, "expected": 0.1, "z": 9.0, "compared_with": "own baseline"}]}}
+        self.alert.save()
+        page = self.client.get(reverse("alert_detail", args=[self.alert.pk])).content.decode()
+        self.assertIn("90.0%", page)                         # now
+        self.assertIn("How it looked when the alert opened", page)
+
+    def test_overview_mentions_recovered_alerts_waiting_for_review(self):
+        make_alert(make_node("compute05"), status="RESOLVED")
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertIn("recovered alert", page)
+        self.assertIn("Nothing is wrong right now", page)
 
     def test_get_does_not_change_an_alert(self):
         self.assertEqual(self.client.get(reverse("alert_acknowledge", args=[self.alert.pk])).status_code, 405)

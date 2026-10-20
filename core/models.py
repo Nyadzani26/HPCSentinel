@@ -3,17 +3,22 @@
 Integrity rules that can be expressed in the database are expressed here as constraints,
 so that a fault in the application cannot break them:
 
-* BR-06  an alert has an outcome if and only if it is Closed
-* BR-08  at most one live alert per node may be Open or Acknowledged
+* BR-06  an alert has an outcome if and only if it is Closed (Reviewed)
+* BR-08  at most one live alert per node may be Active (Open or Acknowledged); a Recovered alert does not count
 * a node is scored at most once per cycle
 * an excluded period or an injected episode must end after it starts
 
 Rules about the order of events (BR-05, BR-07) are enforced by the Alert methods below
-and by core.services.review.ReviewService.
+and by core.services.review.ReviewService. BR-05 was relaxed after the first deployment: acknowledging is
+optional, because an alert that recovers by itself and is reviewed hours later should not have to be
+"acknowledged" first.
 """
+from datetime import timedelta
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.db.models import F, Q
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -150,9 +155,13 @@ class Alert(models.Model):
         REPLAY = "REPLAY", "Replay"
 
     class Status(models.TextChoices):
-        OPEN = "OPEN", "Open"
-        ACKNOWLEDGED = "ACKNOWLEDGED", "Acknowledged"
-        CLOSED = "CLOSED", "Closed"
+        OPEN = "OPEN", "Active"
+        ACKNOWLEDGED = "ACKNOWLEDGED", "Being looked at"
+        RESOLVED = "RESOLVED", "Recovered"      # the problem ended by itself; nobody has judged it yet
+        CLOSED = "CLOSED", "Reviewed"
+
+    # Alerts that are still happening, as opposed to ended (RESOLVED) or judged (CLOSED).
+    ACTIVE = ("OPEN", "ACKNOWLEDGED")
 
     class Outcome(models.TextChoices):
         CONFIRMED = "CONFIRMED", "Confirmed"
@@ -164,6 +173,12 @@ class Alert(models.Model):
     outcome = models.CharField(max_length=12, choices=Outcome.choices, null=True, blank=True)
     opened_at = models.DateTimeField()
     closed_at = models.DateTimeField(null=True, blank=True)
+    # An alert is one story, not one event: it keeps updating while the node stays unusual (last_seen_at, peak_score,
+    # explanation["latest"]), ends by itself (recovered_at) and reopens if the node flares up again soon after.
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    recovered_at = models.DateTimeField(null=True, blank=True)
+    resolved_reason = models.CharField(max_length=12, blank=True, default="")   # "recovered" or "no_data"
+    recurrences = models.PositiveIntegerField(default=0)
     peak_score = models.FloatField()
     explanation = models.JSONField()
     model = models.ForeignKey(ModelVersion, on_delete=models.PROTECT, related_name="alerts")
@@ -190,16 +205,18 @@ class Alert(models.Model):
     def __str__(self):
         return f"Alert {self.pk} on {self.node} ({self.status})"
 
-    # --- lifecycle (Figure 7; BR-05, BR-06, BR-07) -------------------------------------
+    # --- lifecycle (Figure 7; BR-05, BR-06, BR-07) --------------------------------------
+    # Active (OPEN, ACKNOWLEDGED) -> Recovered (RESOLVED, by the platform) -> Reviewed (CLOSED, by a person).
+    # A person may review an alert in any of the first three states; reviewing is optional for the platform to work.
     def acknowledge(self):
         if self.status != self.Status.OPEN:
-            raise InvalidTransition("Only an open alert can be acknowledged.")
+            raise InvalidTransition("Only an active alert can be marked as being looked at.")
         self.status = self.Status.ACKNOWLEDGED
         self.save(update_fields=["status"])
 
     def close(self, outcome, when):
-        if self.status != self.Status.ACKNOWLEDGED:
-            raise InvalidTransition("An alert must be acknowledged before it can be closed.")
+        if self.status == self.Status.CLOSED:
+            raise InvalidTransition("This alert has already been reviewed.")
         if outcome not in self.Outcome.values:
             raise InvalidTransition("An outcome of Confirmed or False alarm is required to close an alert.")
         self.status = self.Status.CLOSED
@@ -209,11 +226,66 @@ class Alert(models.Model):
 
     def reopen(self):
         if self.status != self.Status.CLOSED:
-            raise InvalidTransition("Only a closed alert can be reopened.")
+            raise InvalidTransition("Only a reviewed alert can be reopened.")
         self.status = self.Status.ACKNOWLEDGED
         self.outcome = None
         self.closed_at = None
-        self.save(update_fields=["status", "outcome", "closed_at"])
+        self.recovered_at = None
+        self.resolved_reason = ""
+        self.save(update_fields=["status", "outcome", "closed_at", "recovered_at", "resolved_reason"])
+
+    def resolve(self, when, reason):
+        """The platform ends an alert because the node is normal again, or has stopped reporting."""
+        if self.status not in self.ACTIVE:
+            raise InvalidTransition("Only an active alert can recover.")
+        self.status = self.Status.RESOLVED
+        self.recovered_at = when
+        self.resolved_reason = reason
+        self.save(update_fields=["status", "recovered_at", "resolved_reason"])
+
+    def flare_up(self, when):
+        """The node became unusual again soon after recovering: continue the same alert."""
+        if self.status != self.Status.RESOLVED:
+            raise InvalidTransition("Only a recovered alert can come back.")
+        self.status = self.Status.OPEN
+        self.recovered_at = None
+        self.resolved_reason = ""
+        self.recurrences += 1
+        self.last_seen_at = when
+        self.save(update_fields=["status", "recovered_at", "resolved_reason", "recurrences", "last_seen_at"])
+
+    @property
+    def is_active(self):
+        return self.status in self.ACTIVE
+
+    @property
+    def lasted(self):
+        """How long the node was unusual: up to now while active, up to the last unusual check once it ended."""
+        end = timezone.now() if self.is_active else (self.last_seen_at or self.opened_at)
+        return max(end - self.opened_at, timedelta(0))
+
+
+class Report(models.Model):
+    """A saved daily, weekly or monthly summary (stage 3). The numbers are frozen when it is generated, so a report
+    read next month says what was known at the time; an Administrator can regenerate it to include later reviews."""
+
+    class Kind(models.TextChoices):
+        DAILY = "daily", "Daily"
+        WEEKLY = "weekly", "Weekly"
+        MONTHLY = "monthly", "Monthly"
+
+    kind = models.CharField(max_length=8, choices=Kind.choices)
+    period_start = models.DateTimeField()
+    period_end = models.DateTimeField()
+    generated_at = models.DateTimeField()
+    data = models.JSONField()
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["kind", "period_start"], name="one_report_per_kind_and_period")]
+        ordering = ["-period_start"]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} report {self.period_start:%Y-%m-%d}"
 
 
 class NodeWindow(models.Model):
@@ -256,6 +328,8 @@ class AlertAction(models.Model):
         CLOSE = "CLOSE", "Close"
         REOPEN = "REOPEN", "Reopen"
         NOTE = "NOTE", "Note"
+        RECOVER = "RECOVER", "Recovered"       # recorded by the platform itself
+        RECUR = "RECUR", "Came back"           # recorded by the platform itself
 
     alert = models.ForeignKey(Alert, on_delete=models.PROTECT, related_name="actions")
     user = models.ForeignKey(User, on_delete=models.PROTECT, related_name="alert_actions")

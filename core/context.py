@@ -21,7 +21,8 @@ def sentinel(request):
     else:
         status = ("ok", "Monitoring active")
     return {
-        "nav_alert_count": Alert.objects.filter(mode="LIVE", status__in=["OPEN", "ACKNOWLEDGED"]).count(),
+        "nav_alert_count": Alert.objects.filter(mode="LIVE", status__in=Alert.ACTIVE).count(),
+        "nav_review_count": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(),
         "nav_status": status,
         "nav_last_cycle": last.started_at if last else None,
         "nav_has_model": ModelVersion.objects.exists(),

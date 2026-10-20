@@ -6,7 +6,7 @@ from django.test import TestCase
 
 from core.models import Alert, AlertAction, InvalidTransition, User
 from core.services.review import PermissionDenied, ReviewService
-from core.tests.helpers import make_alert, make_user
+from core.tests.helpers import make_alert, make_node, make_user
 
 
 class ReviewWorkflowTests(TestCase):
@@ -23,13 +23,42 @@ class ReviewWorkflowTests(TestCase):
         action = alert.actions.get()
         self.assertEqual((action.action, action.user), (AlertAction.Action.ACKNOWLEDGE, self.operator))
 
-    def test_open_alert_cannot_be_closed_directly(self):  # BR-05
+    def test_an_active_alert_can_be_reviewed_without_acknowledging_first(self):  # BR-05 relaxed
         alert = make_alert()
-        with self.assertRaises(InvalidTransition):
-            self.service.close(alert, self.operator, Alert.Outcome.CONFIRMED)
+        self.service.close(alert, self.operator, Alert.Outcome.CONFIRMED)
         alert.refresh_from_db()
-        self.assertEqual(alert.status, Alert.Status.OPEN)
-        self.assertEqual(alert.actions.count(), 0)
+        self.assertEqual((alert.status, alert.outcome), (Alert.Status.CLOSED, Alert.Outcome.CONFIRMED))
+
+    def test_a_recovered_alert_can_be_reviewed_in_one_step(self):
+        alert = make_alert(status=Alert.Status.RESOLVED)
+        self.service.close(alert, self.operator, Alert.Outcome.FALSE_ALARM)
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.outcome), (Alert.Status.CLOSED, Alert.Outcome.FALSE_ALARM))
+        self.assertEqual(alert.actions.get().user, self.operator)
+
+    def test_a_reviewed_alert_cannot_be_reviewed_again(self):  # BR-07
+        alert = make_alert(status=Alert.Status.CLOSED, outcome=Alert.Outcome.CONFIRMED)
+        with self.assertRaises(InvalidTransition):
+            self.service.close(alert, self.operator, Alert.Outcome.FALSE_ALARM)
+        alert.refresh_from_db()
+        self.assertEqual(alert.outcome, Alert.Outcome.CONFIRMED)
+
+    def test_a_recovered_alert_cannot_be_acknowledged(self):
+        with self.assertRaises(InvalidTransition):
+            self.service.acknowledge(make_alert(status=Alert.Status.RESOLVED), self.operator)
+
+    def test_review_many_at_once(self):
+        a = make_alert(make_node("compute01"), status=Alert.Status.RESOLVED)
+        b = make_alert(make_node("compute02"))
+        done = make_alert(make_node("compute03"), status=Alert.Status.CLOSED, outcome=Alert.Outcome.CONFIRMED)
+        changed = self.service.close_many([a.pk, b.pk, done.pk], self.operator, Alert.Outcome.FALSE_ALARM, note="stress test")
+        self.assertEqual(changed, 2)
+        for alert in (a, b):
+            alert.refresh_from_db()
+            self.assertEqual((alert.status, alert.outcome), (Alert.Status.CLOSED, Alert.Outcome.FALSE_ALARM))
+            self.assertEqual(alert.actions.get().note, "stress test")
+        done.refresh_from_db()
+        self.assertEqual(done.outcome, Alert.Outcome.CONFIRMED)   # an earlier judgement is never overwritten
 
     def test_closing_requires_an_outcome(self):  # BR-06
         alert = make_alert(status=Alert.Status.ACKNOWLEDGED)

@@ -29,7 +29,26 @@ def metric_direction(observed, expected):
 
 @register.simple_tag
 def alert_headline(alert):
-    return display.headline(alert.explanation, alert.node.name)
+    """What is wrong, from the latest state of the alert when it has been updated since it opened."""
+    ex = alert.explanation or {}
+    return display.headline(ex.get("latest") or ex, alert.node.name)
+
+
+@register.filter
+def span(value):
+    """'25 min', '2 h 10 min' or '3 days' for a length of time."""
+    if value is None:
+        return "–"
+    minutes = int(value.total_seconds() // 60)
+    if minutes < 1:
+        return "under a minute"
+    if minutes < 60:
+        return f"{minutes} min"
+    hours, rest = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} h {rest} min" if rest else f"{hours} h"
+    days = hours // 24
+    return f"{days} day{'s' if days != 1 else ''}"
 
 
 @register.filter

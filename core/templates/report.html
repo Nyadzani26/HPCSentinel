@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load sentinel %}
+{% block title %}{{ kind_label }} report · {{ d.label }} · HPCSentinel{% endblock %}
+{% block content %}
+{% with a=d.alerts c=d.coverage %}
+<div class="crumbs noprint"><a href="{% url 'reports' %}">Reports</a> / {{ kind_label }}</div>
+<div class="head">
+  <div>
+    <h1>{{ kind_label }} report</h1>
+    <p class="muted" style="font-size:1.05rem">{{ d.label }}{% if d.partial %} · <strong style="color:var(--ink)">so far</strong>, up to {{ d.until_label }} UTC. The saved report is written when the period ends.{% endif %}</p>
+    {% if report %}<p class="muted small">Generated {{ report.generated_at|date:"j M Y, H:i" }} UTC. Reviews made after that time are not included{% if user.is_administrator %} until you rebuild it{% endif %}.</p>{% endif %}
+  </div>
+  <div class="noprint" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
+    <button type="button" class="btn secondary" onclick="window.print()">Print or save as PDF</button>
+    <a class="btn secondary" href="{{ csv_base }}/alerts.csv">Alerts (CSV)</a>
+    <a class="btn secondary" href="{{ csv_base }}/nodes.csv">Nodes (CSV)</a>
+    {% if report and user.is_administrator %}<form method="post" action="{% url 'report_regenerate' report.pk %}" class="inline">{% csrf_token %}<button class="btn secondary" type="submit">Rebuild</button></form>{% endif %}
+  </div>
+</div>
+
+<div class="card summary-card">
+  <h2>In short</h2>
+  {% for line in d.summary %}<p>{{ line }}</p>{% endfor %}
+</div>
+
+<div class="kpis">
+  <div class="kpi"><b>{{ a.opened }}</b><span>alert{{ a.opened|pluralize }} raised</span>{% if d.previous_opened or a.opened %}<small>previous period: {{ d.previous_opened }}</small>{% endif %}</div>
+  <div class="kpi"><b>{{ a.confirmed }}</b><span>confirmed real</span><small>{{ a.false_alarm }} false alarm{{ a.false_alarm|pluralize }}</small></div>
+  <div class="kpi"><b>{{ a.recovered_unreviewed }}</b><span>waiting for review</span><small>{{ a.still_active }} still active</small></div>
+  <div class="kpi"><b>{% if a.median_minutes is None %}–{% else %}{{ a.median_minutes|floatformat:"-1" }}{% endif %}</b><span>minutes, typical alert</span><small>longest {% if a.longest_minutes is None %}–{% else %}{{ a.longest_minutes|floatformat:"-1" }} min{% endif %}</small></div>
+  <div class="kpi"><b>{{ c.nodes_seen }}</b><span>nodes watched</span><small>data in {{ c.hours_reporting }} of {{ c.hours_in_period|floatformat:"-1" }} h</small></div>
+</div>
+
+<div class="grid2">
+  <section class="card"><h2>Nodes with the most alerts</h2>
+    {% if d.by_node %}
+    <table><thead><tr><th>Node</th><th class="num">Alerts</th><th class="num">Minutes unusual</th><th class="num">Real</th><th class="num">False</th><th class="num">Not reviewed</th></tr></thead><tbody>
+    {% for r in d.by_node %}<tr><td><a href="{% url 'node_detail' r.node %}"><strong>{{ r.node }}</strong></a></td><td class="num">{{ r.alerts }}</td><td class="num">{{ r.minutes|floatformat:"-1" }}</td><td class="num">{{ r.confirmed }}</td><td class="num">{{ r.false_alarm }}</td><td class="num">{{ r.unreviewed }}</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No node raised an alert.</p>{% endif %}
+  </section>
+  <section class="card"><h2>What the alerts were about</h2>
+    {% if d.by_metric %}
+    <table><thead><tr><th>Main cause</th><th class="num">Alerts</th></tr></thead><tbody>
+    {% for r in d.by_metric %}<tr><td>{{ r.label }}</td><td class="num">{{ r.alerts }}</td></tr>{% endfor %}
+    </tbody></table>
+    <p class="muted small" style="margin-top:.6rem">The metric that moved furthest from normal when each alert opened.{% if d.by_state %} {% for k, v in d.by_state.items %}{{ v }} while {{ k|lower }}{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}</p>
+    {% else %}<p class="muted">Nothing to show.</p>{% endif %}
+  </section>
+</div>
+
+<div class="grid2" style="margin-top:1.2rem">
+  <section class="card"><h2>Could the platform see the cluster?</h2>
+    <table><tbody>
+      <tr><td>Hours with data from nodes</td><td class="num"><strong>{{ c.hours_reporting }}</strong> of {{ c.hours_in_period|floatformat:"-1" }}</td></tr>
+      <tr><td>Node-hours scored</td><td class="num"><strong>{{ c.node_hours|floatformat:"-1" }}</strong></td></tr>
+      <tr><td>Checks that could not reach Prometheus</td><td class="num"><strong>{{ c.outage_cycles }}</strong></td></tr>
+      <tr><td>Share of node checks with reliable data</td><td class="num"><strong>{% if c.reliable_share is None %}–{% else %}{% widthratio c.reliable_share 1 100 %}%{% endif %}</strong></td></tr>
+    </tbody></table>
+    <p class="muted small" style="margin-top:.6rem">A node that is switched off counts as having no reliable data. That is why this share is low for a cluster that is powered down overnight.</p>
+  </section>
+  <section class="card"><h2>What the platform learned</h2>
+    {% if d.learning.models %}
+    <table><thead><tr><th>Model</th><th>Learned (UTC)</th><th>How</th></tr></thead><tbody>
+    {% for m in d.learning.models %}<tr><td><strong>{{ m.label }}</strong></td><td class="small">{{ m.trained_label|default:m.trained_at }}</td><td>{% if m.origin == "auto" %}Automatically{% else %}Manually{% endif %}{% if m.hours_per_node %}, from {{ m.hours_per_node|floatformat:"-1" }} h per node{% endif %}</td></tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No new model in this period.</p>{% endif %}
+    {% if d.learning.in_use %}<p class="muted small" style="margin-top:.6rem">Model in use at the end of the period: {{ d.learning.in_use }}.</p>{% endif %}
+  </section>
+</div>
+<p class="muted small" style="margin-top:1.2rem">"Real" and "false" are the judgements people recorded on recovered alerts. HPCSentinel never labels its own alerts, so the real-fault rate describes only the alerts that were reviewed.</p>
+{% endwith %}
+{% endblock %}

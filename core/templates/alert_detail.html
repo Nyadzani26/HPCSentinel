@@ -6,7 +6,11 @@
 <div class="head" style="margin-bottom:.4rem">
   <div>
     <h1>{% alert_headline alert %}</h1>
-    <p class="muted">Opened {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} UTC){% if alert.closed_at %} · closed {{ alert.closed_at|date:"j M Y, H:i" }} UTC{% endif %}</p>
+    <p class="muted">Started {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} UTC)
+      {% if alert.is_active %}· <strong style="color:var(--ink)">still going</strong>, {{ alert.lasted|span }} so far{% else %}· lasted {{ alert.lasted|span }}{% endif %}
+      {% if alert.recurrences %}· came back {{ alert.recurrences }} time{{ alert.recurrences|pluralize }}{% endif %}
+      {% if alert.status == "RESOLVED" or alert.recovered_at %}<br>{% if alert.resolved_reason == "no_data" %}Ended {{ alert.recovered_at|ago }} because the node stopped reporting.{% else %}Ended by itself {{ alert.recovered_at|ago }}: the node was normal again.{% endif %}{% endif %}
+      {% if alert.closed_at %}<br>Reviewed {{ alert.closed_at|date:"j M Y, H:i" }} UTC.{% endif %}</p>
   </div>
   {% if alert.outcome %}<span class="pill {{ alert.outcome }}">{{ alert.get_outcome_display }}</span>{% endif %}
 </div>
@@ -18,7 +22,7 @@
   <div>
     <div class="card">
       <h2>What changed</h2>
-      <p class="muted small">These metrics moved furthest from what is normal for this node. The bar shows how much each one counted towards the alert.</p>
+      <p class="muted small">These metrics moved furthest from what is normal for this node{% if latest_at %}, as of the latest check{% endif %}. The bar shows how much each one counted towards the alert.</p>
       {% if rows %}
       <table>
         <thead><tr><th>Metric</th><th class="num">Now</th><th class="num">Normal</th><th>Change</th><th>Contribution</th></tr></thead>
@@ -41,6 +45,13 @@
       <p class="muted">{% if history.alerts_last_30_days %}In the last 30 days this node raised {{ history.alerts_last_30_days }} alert{{ history.alerts_last_30_days|pluralize }}: {{ history.confirmed_last_30_days }} confirmed as a real fault and {{ history.false_alarms_last_30_days }} closed as a false alarm.{% else %}This node has not raised an alert in the last 30 days.{% endif %}</p>
       {% endif %}
       <div id="score"></div>
+      {% if opening %}
+      <details style="margin-top:.7rem"><summary>How it looked when the alert opened</summary>
+        <table style="margin-top:.5rem"><thead><tr><th>Metric</th><th class="num">Then</th><th class="num">Normal</th><th>Change</th></tr></thead><tbody>
+        {% for r in opening %}<tr><td><strong>{{ r.label }}</strong></td><td class="num">{{ r.now }}</td><td class="num">{{ r.normal }}</td><td>{{ r.change }}</td></tr>{% endfor %}
+        </tbody></table>
+      </details>
+      {% endif %}
       <details style="margin-top:.7rem"><summary>Technical details</summary>
         <p class="muted small" style="margin-top:.5rem">Scores are in units of typical spread: 0 is normal, and the alert level is {{ threshold }}. The combined score weighs the node against its own baseline, against its peers, and the Isolation Forest model {{ alert.model.label }}.</p>
         <p class="small">Peak {{ alert.peak_score|floatformat:2 }} · baseline {{ alert.explanation.scores.baseline|default_if_none:"–" }} · peers {{ alert.explanation.scores.peer|default_if_none:"–" }} · model {{ alert.explanation.scores.model|default_if_none:"–" }} · combined {{ alert.explanation.scores.combined|default_if_none:"–" }} when it opened.</p>
@@ -53,29 +64,29 @@
 
   <div>
     <div class="card">
-      <h2>{% if alert.status == "OPEN" %}Next step{% elif alert.status == "ACKNOWLEDGED" %}Close this alert{% else %}Closed{% endif %}</h2>
-      {% if alert.status == "OPEN" %}
-      <p class="muted">Acknowledge it so your team knows someone is looking.</p>
-      <form method="post" action="{% url 'alert_acknowledge' alert.pk %}" class="form">{% csrf_token %}
-        <label for="ack-note">Note <span class="hint">Optional. What will you check first?</span><textarea id="ack-note" name="note" rows="2"></textarea></label>
-        <button type="submit" class="btn">Acknowledge alert</button>
-      </form>
-      {% elif alert.status == "ACKNOWLEDGED" %}
-      <p class="muted">When you have decided what happened, record it. This is how the platform learns how often it is right.</p>
+      <h2>{% if alert.status == "CLOSED" %}Reviewed{% else %}Was it a real fault?{% endif %}</h2>
+      {% if alert.status != "CLOSED" %}
+      <p class="muted">{% if alert.is_active %}This alert closes by itself when the node is normal again. You can already say what it was, or leave that until later.{% else %}The node is normal again. Saying what this was is optional, but it is how the platform's accuracy is measured.{% endif %}</p>
       <form method="post" action="{% url 'alert_close' alert.pk %}" class="form">{% csrf_token %}
         <label class="choice"><input type="radio" name="outcome" value="CONFIRMED" required><span><strong>Real fault</strong><span class="hint">Something was wrong with the node.</span></span></label>
         <label class="choice"><input type="radio" name="outcome" value="FALSE_ALARM"><span><strong>False alarm</strong><span class="hint">The node was fine. This was normal behaviour.</span></span></label>
         <label for="close-note">Note <span class="hint">Optional. What was the cause, or what did you do?</span><textarea id="close-note" name="note" rows="3"></textarea></label>
-        <button type="submit" class="btn">Close alert</button>
+        <button type="submit" class="btn">Save review</button>
       </form>
+      {% if alert.status == "OPEN" %}
+      <form method="post" action="{% url 'alert_acknowledge' alert.pk %}" class="form" style="margin-top:.9rem">{% csrf_token %}
+        <p class="muted small">Or let your team know you are looking into it:</p>
+        <button type="submit" class="btn secondary small">I'm looking into it</button>
+      </form>
+      {% endif %}
       {% else %}
-      <p>Closed as <strong>{{ alert.get_outcome_display|lower }}</strong>.</p>
+      <p>Marked as <strong>{{ alert.get_outcome_display|lower }}</strong>.</p>
       {% if user.is_administrator %}
       <form method="post" action="{% url 'alert_reopen' alert.pk %}" class="form">{% csrf_token %}
         <label for="reopen-note">Why reopen? <textarea id="reopen-note" name="note" rows="2"></textarea></label>
         <button type="submit" class="btn secondary">Reopen alert</button>
       </form>
-      {% else %}<p class="muted small">Only an Administrator can reopen a closed alert.</p>{% endif %}
+      {% else %}<p class="muted small">Only an Administrator can reopen a reviewed alert.</p>{% endif %}
       {% endif %}
     </div>
 
@@ -83,7 +94,7 @@
       <h2>Activity</h2>
       {% if actions %}
       <ul class="timeline">
-        {% for a in actions %}<li><strong>{{ a.user.username }}</strong> {% if a.action == "ACKNOWLEDGE" %}acknowledged the alert{% elif a.action == "CLOSE" %}closed it as {{ a.get_outcome_display|lower }}{% elif a.action == "REOPEN" %}reopened it{% else %}added a note{% endif %}
+        {% for a in actions %}<li>{% if a.user.username != "system" %}<strong>{{ a.user.username }}</strong>{% else %}<strong>HPCSentinel</strong>{% endif %} {% if a.action == "ACKNOWLEDGE" %}said they are looking into it{% elif a.action == "CLOSE" %}marked it as {{ a.get_outcome_display|lower }}{% elif a.action == "REOPEN" %}reopened it{% elif a.action == "RECOVER" or a.action == "RECUR" %}<span class="muted">(automatic)</span>{% else %}added a note{% endif %}
           <div class="muted small" title="{{ a.created_at|date:'Y-m-d H:i' }} UTC">{{ a.created_at|ago }}</div>{% if a.note %}<div>{{ a.note }}</div>{% endif %}</li>{% endfor %}
       </ul>
       {% else %}<p class="muted">Nothing yet. Actions and notes appear here with who and when.</p>{% endif %}

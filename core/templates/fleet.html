@@ -35,6 +35,13 @@
 </div>
 {% endif %}
 
+{% if to_review %}
+<div class="notice" style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
+  <span><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</span>
+  <a class="btn small" href="{% url 'alert_list' %}?status=review">Review</a>
+</div>
+{% endif %}
+
 {% if attention %}
 <section aria-labelledby="attn-h" style="margin-top:0">
   <h2 id="attn-h">Needs attention</h2>
@@ -43,11 +50,11 @@
     <div class="card attn-card {{ t.css }}">
       <div>
         <h3>{% alert_headline t.alert %}</h3>
-        <div class="muted small">Opened {{ t.alert.opened_at|ago }} · {{ t.window.load_state|default:"–"|lower }}</div>
+        <div class="muted small">Opened {{ t.alert.opened_at|ago }} · still going, {{ t.alert.lasted|span }} so far · {{ t.window.load_state|default:"–"|lower }}</div>
       </div>
       <div style="display:flex;gap:.7rem;align-items:center">
         <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
-        <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Review{% else %}Continue{% endif %}</a>
+        <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Look{% else %}Open{% endif %}</a>
       </div>
     </div>
     {% endfor %}

@@ -40,6 +40,9 @@ detection:
   learn_min_hours: 3                # clean data needed per node before the first automatic learning (Ranger is only on ~7 h a day)
   learn_min_interval_hours: 6       # at least this long between automatic learning runs
   self_clean: true                  # drop learning windows that are far outside normal before fitting (see docs)
+  recovery_windows: 5               # an alert ends by itself after this many normal checks in a row (2 minutes each)
+  no_data_minutes: 30               # ...or when the node has stopped reporting for this long (for example, switched off)
+  merge_minutes: 60                 # a node that becomes unusual again within this time reopens the same alert
   relearn_hours: 168                # re-learn baselines this often; 0 turns scheduled re-learning off (FR-17)
   relearn_days: 14                  # length of the rolling window of recent data used
   # Smallest change that matters, in each metric's own unit. A metric must move at least this much before the

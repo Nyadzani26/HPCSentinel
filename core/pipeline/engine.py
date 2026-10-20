@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-from core.models import Alert, ConfigVersion, ModelVersion, Node, NodeWindow
+from core.models import Alert, AlertAction, ConfigVersion, ModelVersion, Node, NodeWindow
 from core.pipeline import features as feat
 from core.pipeline.detector import Detector, base_metric
 
@@ -118,49 +118,122 @@ def history_context(node: Node, now) -> dict:
 
 
 class AlertManager:
-    """Raises an alert only after N consecutive abnormal windows (BR-01, FR-15)."""
+    """Raises, updates, ends and re-opens alerts from the stream of scored windows.
+
+    One alert is one story about one node. It opens only after N consecutive abnormal windows (BR-01, FR-15), keeps
+    updating while the node stays abnormal, ends by itself once the node has been normal for a while or has stopped
+    reporting, and is re-opened rather than duplicated if the node becomes abnormal again soon afterwards. People
+    review alerts afterwards if they wish; none of this waits for them.
+
+    Replay uses the same persistence rule but not the recover and merge steps, so replayed alerts are separate
+    abnormal runs. That makes the false-alert counts measured in replay a conservative (higher) estimate.
+    """
 
     def __init__(self, cfg: dict, config_version: ConfigVersion, model_version: ModelVersion | None, mode: str):
         det = cfg["detection"]
         self.threshold = float(det["alert_threshold"])
         self.persistence = int(det["persistence_windows"])
+        self.recovery = int(det.get("recovery_windows", 5))
+        self.no_data = timedelta(minutes=float(det.get("no_data_minutes", 30)))
+        self.merge = timedelta(minutes=float(det.get("merge_minutes", 60)))
         self.config_version, self.model_version, self.mode = config_version, model_version, mode
 
     def is_abnormal(self, window: NodeWindow) -> bool:
         return (window.quality == NodeWindow.Quality.RELIABLE and window.combined_score is not None
                 and window.combined_score > self.threshold)
 
+    def is_normal(self, window: NodeWindow) -> bool:
+        return (window.quality == NodeWindow.Quality.RELIABLE and window.combined_score is not None
+                and window.combined_score <= self.threshold)
+
+    def _latest(self, node: Node, group: str, entry: dict, window_end) -> dict:
+        """What the node looks like now, kept on the alert so an old alert shows its latest state."""
+        e = explain(node, group, entry, self.threshold, self.persistence)
+        return {"at": window_end.isoformat(), "summary": e["summary"], "contributors": e["contributors"],
+                "scores": e["scores"], "load_state": e["load_state"]}
+
+    @staticmethod
+    def _system_note(alert: Alert, action: str, note: str):
+        from core.services.config_store import get_system_user
+        AlertAction.objects.create(alert=alert, user=get_system_user(), action=action, note=note)
+
     def evaluate(self, node: Node, window: NodeWindow, group: str, entry: dict, now) -> Alert | None:
+        """Handle one abnormal window. Returns an alert when one is raised or brought back, otherwise None."""
         if not self.is_abnormal(window) or self.model_version is None:
             return None
-        live_alert = Alert.objects.filter(node=node, mode=self.mode,
-                                          status__in=[Alert.Status.OPEN, Alert.Status.ACKNOWLEDGED]).first() \
-            if self.mode == Alert.Mode.LIVE else None
+        live = self.mode == Alert.Mode.LIVE
+        live_alert = Alert.objects.filter(node=node, mode=self.mode, status__in=Alert.ACTIVE).first() if live else None
         if live_alert is None and self.mode == Alert.Mode.REPLAY:
             prev = NodeWindow.objects.filter(node=node, cycle__mode=self.mode, window_end__lt=window.window_end) \
                 .order_by("-window_end").select_related("alert").first()
             live_alert = prev.alert if prev is not None and prev.alert is not None and self.is_abnormal(prev) else None
         if live_alert is not None:
+            fields = []
             if window.combined_score > live_alert.peak_score:
                 live_alert.peak_score = window.combined_score
-                live_alert.save(update_fields=["peak_score"])
+                fields.append("peak_score")
+            if live:  # update in place: the alert always shows the latest state of the problem
+                live_alert.last_seen_at = window.window_end
+                live_alert.explanation = {**live_alert.explanation, "latest": self._latest(node, group, entry, window.window_end)}
+                fields += ["last_seen_at", "explanation"]
+            if fields:
+                live_alert.save(update_fields=fields)
             window.alert = live_alert
             window.save(update_fields=["alert"])
             return None
-        # a node must be abnormal for N consecutive windows, counted after any earlier closure
-        closed = Alert.objects.filter(node=node, mode=self.mode, status=Alert.Status.CLOSED).order_by("-closed_at").first()
+        # a node must be abnormal for N consecutive windows, counted after the last time an alert ended
         history = NodeWindow.objects.filter(node=node, cycle__mode=self.mode, window_end__lte=window.window_end)
-        if closed is not None and closed.closed_at is not None and self.mode == Alert.Mode.LIVE:
-            history = history.filter(window_end__gt=closed.closed_at)
+        resolved = None
+        if live:
+            closed = Alert.objects.filter(node=node, mode=self.mode, status=Alert.Status.CLOSED).order_by("-closed_at").first()
+            resolved = Alert.objects.filter(node=node, mode=self.mode, status=Alert.Status.RESOLVED).order_by("-recovered_at").first()
+            barrier = max([t for t in (closed.closed_at if closed else None, resolved.recovered_at if resolved else None) if t],
+                          default=None)
+            if barrier is not None:
+                history = history.filter(window_end__gt=barrier)
         recent = list(history.order_by("-window_end")[: self.persistence])
         if len(recent) < self.persistence or not all(self.is_abnormal(w) for w in recent):
             return None
+        peak = max(w.combined_score for w in recent)
+        if live and resolved is not None and resolved.recovered_at is not None \
+                and window.window_end - resolved.recovered_at <= self.merge:
+            # flapping: the same problem came back, so continue the same alert instead of opening another
+            resolved.flare_up(window.window_end)
+            resolved.peak_score = max(resolved.peak_score, peak)
+            resolved.explanation = {**resolved.explanation, "latest": self._latest(node, group, entry, window.window_end)}
+            resolved.save(update_fields=["peak_score", "explanation"])
+            NodeWindow.objects.filter(pk__in=[w.pk for w in recent]).update(alert=resolved)
+            self._system_note(resolved, AlertAction.Action.RECUR, "The node became unusual again, so this alert was continued.")
+            return resolved
         explanation = explain(node, group, entry, self.threshold, self.persistence)
         explanation["history"] = history_context(node, now)
         alert = Alert.objects.create(
-            node=node, mode=self.mode, opened_at=window.window_end,
-            peak_score=max(w.combined_score for w in recent), explanation=explanation,
-            model=self.model_version, config=self.config_version,
+            node=node, mode=self.mode, opened_at=window.window_end, last_seen_at=window.window_end if live else None,
+            peak_score=peak, explanation=explanation, model=self.model_version, config=self.config_version,
         )
         NodeWindow.objects.filter(pk__in=[w.pk for w in recent]).update(alert=alert)
+        return alert
+
+    def settle(self, node: Node, window: NodeWindow) -> Alert | None:
+        """Handle one window that is not abnormal: end an active alert if the problem is over. Returns the ended alert."""
+        if self.mode != Alert.Mode.LIVE:
+            return None
+        alert = Alert.objects.filter(node=node, mode=self.mode, status__in=Alert.ACTIVE).first()
+        if alert is None:
+            return None
+        reference = alert.last_seen_at or alert.opened_at
+        since = NodeWindow.objects.filter(node=node, cycle__mode=self.mode, window_end__gt=reference)
+        recent = list(since.order_by("-window_end")[: self.recovery])
+        normal_run = len(recent) >= self.recovery and all(self.is_normal(w) for w in recent)
+        reliable_since = since.filter(quality=NodeWindow.Quality.RELIABLE).exists()
+        elapsed = window.window_end - reference
+        silent = elapsed >= self.no_data and not reliable_since        # switched off, or Prometheus lost it
+        stale = elapsed >= timedelta(hours=6)                           # never leave an alert active indefinitely
+        if not (normal_run or silent or stale):
+            return None
+        reason = "recovered" if (normal_run or reliable_since) else "no_data"
+        alert.resolve(window.window_end, reason)
+        self._system_note(alert, AlertAction.Action.RECOVER,
+                          "The node has been normal again, so this alert ended by itself." if reason == "recovered"
+                          else "The node stopped reporting, so this alert ended by itself.")
         return alert

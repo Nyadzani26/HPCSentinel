@@ -63,6 +63,10 @@ def validate(cfg: dict) -> dict:
         value = det.get(key, {"learn_days": 14, "learn_min_interval_hours": 0, "learn_min_hours": 6}[key])
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < low:
             raise ConfigError(f"'{key}' in detection must be a number, at least {low}.")
+    for key, low, default in (("recovery_windows", 1, 5), ("no_data_minutes", 1, 30), ("merge_minutes", 0, 60)):
+        value = det.get(key, default)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < low:
+            raise ConfigError(f"'{key}' in detection must be a number, at least {low}.")
     if not isinstance(det.get("self_clean", True), bool):
         raise ConfigError("'self_clean' in detection must be true or false.")
 

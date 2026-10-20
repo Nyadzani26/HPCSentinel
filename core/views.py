@@ -10,19 +10,22 @@ from django.conf import settings as django_settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import connection
-from django.http import Http404, HttpResponseForbidden, JsonResponse
+from django.db.models import Count, Q
+from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
 from core import display, forms
 from core.config import ConfigError, load_config
 from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
-                         Job, ModelVersion, Node, NodeWindow, User)
+                         Job, ModelVersion, Node, NodeWindow, Report, User)
 from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
 from core.services import settings_store
 from core.services import autolearn
+from core.services import reports as reports_service
 from core.services.review import PermissionDenied, ReviewService
 
 STALE_AFTER = timedelta(minutes=10)
@@ -63,7 +66,7 @@ def node_state(node, window, live_alert):
 def home(request):
     """S-02 overview: what needs attention first, then every node (FR-20)."""
     last_cycle = CycleRun.objects.filter(mode=CycleRun.Mode.LIVE).order_by("-started_at").first()
-    live_alerts = {a.node_id: a for a in Alert.objects.filter(mode="LIVE", status__in=["OPEN", "ACKNOWLEDGED"])
+    live_alerts = {a.node_id: a for a in Alert.objects.filter(mode="LIVE", status__in=Alert.ACTIVE)
                    .select_related("node").order_by("-opened_at")}
     latest = {}
     for w in NodeWindow.objects.filter(cycle__mode="LIVE", window_end__gte=timezone.now() - timedelta(hours=1)) \
@@ -88,6 +91,7 @@ def home(request):
          "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
     ]
     return render(request, "fleet.html", {
+        "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(),
         "tiles": tiles, "counts": counts, "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
         "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
         "total": len(tiles),
@@ -158,13 +162,23 @@ def node_detail(request, name):
     })
 
 
+ALERT_TABS = [("live", "Active"), ("review", "Needs review"), ("closed", "Reviewed"), ("all", "All")]
+
+
 @login_required
 def alert_list(request):
-    """S-04 alerts, newest first, filtered by status, node and time range (FR-22)."""
+    """S-04 alerts: what is happening now, what recovered and wants a quick look, and what has been reviewed (FR-22)."""
     status = request.GET.get("status", "live")
-    qs = Alert.objects.filter(mode="LIVE").select_related("node")
+    everything = Alert.objects.filter(mode="LIVE")
+    counts = everything.aggregate(live=Count("pk", filter=Q(status__in=Alert.ACTIVE)), review=Count("pk", filter=Q(status="RESOLVED")),
+                                  closed=Count("pk", filter=Q(status="CLOSED")), all=Count("pk"))
+    qs = everything.select_related("node")
     if status == "live":
-        qs = qs.filter(status__in=["OPEN", "ACKNOWLEDGED"])
+        qs = qs.filter(status__in=Alert.ACTIVE)
+    elif status == "review":
+        qs = qs.filter(status=Alert.Status.RESOLVED)
+    elif status == "closed":
+        qs = qs.filter(status=Alert.Status.CLOSED)
     elif status in Alert.Status.values:
         qs = qs.filter(status=status)
     elif status != "all":
@@ -180,11 +194,24 @@ def alert_list(request):
                 qs = qs.filter(**{lookup: datetime.strptime(value, "%Y-%m-%d").date()})
             except ValueError:
                 errors.append(f"'{value}' is not a date in the form YYYY-MM-DD.")
-    filters = [("live", "Needs attention"), ("OPEN", "Open"), ("ACKNOWLEDGED", "Acknowledged"), ("CLOSED", "Closed"), ("all", "All")]
     return render(request, "alert_list.html", {
-        "alerts": qs.order_by("-opened_at")[:200], "status": status, "filters": filters, "node": node,
+        "alerts": qs.order_by("-opened_at")[:200], "status": status, "node": node, "counts": counts,
+        "filters": [(key, label, counts[key]) for key, label in ALERT_TABS],
         "date_from": request.GET.get("from", ""), "date_to": request.GET.get("to", ""), "errors": errors,
+        "can_review": status in ("live", "review", "all"),
     })
+
+
+def _contributor_rows(contributors):
+    top_z = max([c.get("z", 0) for c in contributors] or [1]) or 1
+    rows = []
+    for c in contributors:
+        delta = display.change(c.get("observed"), c.get("expected"))
+        rows.append({"label": display.label(c["metric"]), "now": display.fmt(c.get("observed"), c["metric"]),
+                     "normal": display.fmt(c.get("expected"), c["metric"]), "change": delta["text"],
+                     "direction": delta["direction"], "share": round(100 * c.get("z", 0) / top_z),
+                     "compared_with": c.get("compared_with", "")})
+    return rows
 
 
 @login_required
@@ -192,26 +219,22 @@ def alert_detail(request, pk):
     """S-05 one alert: what changed, why it was raised, and the next step (FR-19, FR-24 to FR-27)."""
     alert = get_object_or_404(Alert.objects.select_related("node", "model"), pk=pk)
     ex = alert.explanation or {}
-    rows = []
-    top_z = max([c.get("z", 0) for c in ex.get("contributors", [])] or [1])
-    for c in ex.get("contributors", []):
-        delta = display.change(c.get("observed"), c.get("expected"))
-        rows.append({"label": display.label(c["metric"]), "now": display.fmt(c.get("observed"), c["metric"]),
-                     "normal": display.fmt(c.get("expected"), c["metric"]), "change": delta["text"],
-                     "direction": delta["direction"], "share": round(100 * c.get("z", 0) / top_z),
-                     "compared_with": c.get("compared_with", "")})
+    latest = ex.get("latest") or {}
+    rows = _contributor_rows(latest.get("contributors") or ex.get("contributors", []))
+    opening = _contributor_rows(ex.get("contributors", [])) if latest else []
     h = ex.get("history") or {}
     windows = list(alert.windows.order_by("window_end")[:400])
     chart = [{"t": w.window_end.isoformat(), "v": round(w.combined_score, 3)} for w in windows if w.combined_score is not None]
-    steps = [("OPEN", "Open"), ("ACKNOWLEDGED", "Acknowledged"), ("CLOSED", "Closed")]
-    reached = [k for k, _ in steps].index(alert.status)
+    steps = [("OPEN", "Active"), ("RESOLVED", "Recovered"), ("CLOSED", "Reviewed")]
+    reached = {"OPEN": 0, "ACKNOWLEDGED": 0, "RESOLVED": 1, "CLOSED": 2}[alert.status]
     return render(request, "alert_detail.html", {
-        "alert": alert, "rows": rows, "history": h, "chart": chart, "threshold": ex.get("threshold"),
+        "alert": alert, "rows": rows, "opening": opening, "latest_at": latest.get("at"), "history": h, "chart": chart,
+        "threshold": ex.get("threshold"),
         "actions": alert.actions.select_related("user").order_by("created_at"), "windows": windows[-50:],
         "steps": [{"key": k, "label": lbl, "state": "done" if i < reached else "current" if i == reached else "todo"}
                   for i, (k, lbl) in enumerate(steps)],
         "close_form": forms.CloseForm(), "note_form": forms.NoteForm(),
-        "load_state": (ex.get("load_state") or "").lower(),
+        "load_state": (latest.get("load_state") or ex.get("load_state") or "").lower(),
     })
 
 
@@ -247,6 +270,52 @@ def alert_close(request, pk):
                    "Alert closed.")
 
 
+def _back(request, default="alert_list"):
+    """Where to return after a one-click action: the page the person was on, if it is one of ours."""
+    target = request.POST.get("next", "")
+    if target and url_has_allowed_host_and_scheme(target, allowed_hosts={request.get_host()}):
+        return redirect(target)
+    return redirect(default)
+
+
+@login_required
+@require_POST
+def alert_quick(request, pk):
+    """One-click review from a list: real fault or false alarm, no acknowledging first."""
+    outcome = request.POST.get("outcome")
+    if outcome not in Alert.Outcome.values:
+        messages.error(request, "Choose Real fault or False alarm.")
+        return _back(request)
+    alert = get_object_or_404(Alert, pk=pk)
+    try:
+        ReviewService().close(alert, request.user, outcome)
+    except (PermissionDenied, InvalidTransition) as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(request, f"{alert.node.name} marked as {Alert.Outcome(outcome).label.lower()}.")
+    return _back(request)
+
+
+@login_required
+@require_POST
+def alert_bulk(request):
+    """Review many alerts at once, for example every recovered alert from a maintenance window."""
+    outcome = request.POST.get("outcome")
+    ids = [int(i) for i in request.POST.getlist("ids") if i.isdigit()]
+    if not ids:
+        messages.error(request, "Tick at least one alert first.")
+    elif outcome not in Alert.Outcome.values:
+        messages.error(request, "Choose Real fault or False alarm.")
+    else:
+        try:
+            n = ReviewService().close_many(ids, request.user, outcome)
+        except PermissionDenied as exc:
+            messages.error(request, str(exc))
+        else:
+            messages.success(request, f"{n} alert{'s' if n != 1 else ''} marked as {Alert.Outcome(outcome).label.lower()}.")
+    return _back(request)
+
+
 @login_required
 @require_POST
 def alert_reopen(request, pk):
@@ -261,6 +330,82 @@ def alert_note(request, pk):
         messages.error(request, " ".join(e for errs in form.errors.values() for e in errs))
         return redirect("alert_detail", pk=pk)
     return _review(request, pk, lambda s, a: s.add_note(a, request.user, form.cleaned_data["note"]), "Note added.")
+
+
+# ---- reports ---------------------------------------------------------------------------------
+REPORT_KINDS = [("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly")]
+SO_FAR = {"daily": "Today so far", "weekly": "This week so far", "monthly": "This month so far"}
+
+
+@login_required
+def reports_list(request):
+    """Saved daily, weekly and monthly reports, newest first, with a "so far" shortcut for each."""
+    groups = [{"kind": k, "label": label, "so_far": SO_FAR[k],
+               "reports": Report.objects.filter(kind=k).order_by("-period_start")[:12]} for k, label in REPORT_KINDS]
+    return render(request, "reports.html", {"groups": groups, "any": Report.objects.exists()})
+
+
+def _report_context(request, data, *, report=None, kind=None):
+    return {"report": report, "d": data, "kind": data["kind"],
+            "kind_label": dict(REPORT_KINDS)[data["kind"]], "csv_base": request.path.rstrip("/")}
+
+
+@login_required
+def report_detail(request, pk):
+    report = get_object_or_404(Report, pk=pk)
+    return render(request, "report.html", _report_context(request, report.data, report=report))
+
+
+@login_required
+def report_now(request, kind):
+    """A report for the current day, week or month up to this moment. Not saved; the real one is saved when the period ends."""
+    if kind not in dict(REPORT_KINDS):
+        raise Http404
+    now = timezone.now()
+    start = reports_service.floor_period(kind, now)
+    data = reports_service.build(kind, start, reports_service.next_period(kind, start), now)
+    return render(request, "report.html", _report_context(request, data))
+
+
+def _csv_response(text, name):
+    response = HttpResponse(text, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{name}"'
+    return response
+
+
+@login_required
+def report_csv(request, pk, what):
+    report = get_object_or_404(Report, pk=pk)
+    return _csv_download(report.data, what)
+
+
+@login_required
+def report_now_csv(request, kind, what):
+    if kind not in dict(REPORT_KINDS):
+        raise Http404
+    now = timezone.now()
+    start = reports_service.floor_period(kind, now)
+    return _csv_download(reports_service.build(kind, start, reports_service.next_period(kind, start), now), what)
+
+
+def _csv_download(data, what):
+    start, end = datetime.fromisoformat(data["start"]), datetime.fromisoformat(data["end"])
+    stem = f"hpcsentinel-{data['kind']}-{start:%Y%m%d}"
+    if what == "alerts":
+        return _csv_response(reports_service.alerts_csv(start, end), f"{stem}-alerts.csv")
+    if what == "nodes":
+        return _csv_response(reports_service.nodes_csv(data), f"{stem}-nodes.csv")
+    raise Http404
+
+
+@administrator_required
+@require_POST
+def report_regenerate(request, pk):
+    """Rebuild a saved report, for example to include reviews made after it was first generated."""
+    report = get_object_or_404(Report, pk=pk)
+    reports_service.generate(report.kind, report.period_start, replace=True)
+    messages.success(request, "The report was rebuilt with the latest reviews.")
+    return redirect("report_detail", pk=pk)
 
 
 # ---- controls (Administrator only) ---------------------------------------------------------

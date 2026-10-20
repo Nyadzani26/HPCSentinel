@@ -65,10 +65,13 @@ class DetectionCycle:
              if name in by_name]
         )
         raised = 0
+        active = set(Alert.objects.filter(mode=Alert.Mode.LIVE, status__in=Alert.ACTIVE).values_list("node_id", flat=True))
         for window in NodeWindow.objects.filter(cycle=cycle).select_related("node"):
             if manager.is_abnormal(window):
                 raised += bool(manager.evaluate(window.node, window, groups[window.node.name],
                                                 entries[window.node.name], now.to_pydatetime()))
+            elif window.node_id in active:
+                manager.settle(window.node, window)
         return raised
 
     def sync_nodes(self):

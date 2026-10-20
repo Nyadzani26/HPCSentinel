@@ -77,3 +77,64 @@ anomalies are used only to test it.
 **Trade-offs.** Automatic learning can absorb a slow, genuine drift as normal. The 14-day window bounds how far
 that can go, a weekly relearn is the upper limit on staleness, and the cleaning step removes sudden departures
 but not gradual ones. This is recorded as a known limitation.
+
+## Alerts as one story (update in place, recover, merge)
+
+**Problem.** The first lifecycle treated every alert as an event someone must handle: Open, then Acknowledged, then
+Closed with an outcome. On Ranger that failed in a predictable way. Someone returning hours later found a stack of
+stale alerts that had to be acknowledged before they could be closed, and a single cause (the cluster being switched
+off) produced 47 alerts that had to be closed one by one. A tool that creates work in proportion to how often
+the world changes is not one an administrator keeps using.
+
+**Decision.** An alert follows one problem on one node (`engine.AlertManager`).
+
+1. *Update in place.* While the node stays abnormal the alert records the latest check (`last_seen_at`), the
+   peak and the latest contributing metrics (`explanation["latest"]`). How it looked when it opened is kept.
+2. *End by itself.* After `recovery_windows` (5, so 10 minutes) consecutive normal checks, or after
+   `no_data_minutes` (30) with no reliable data at all, the alert becomes Recovered. A hard limit of six hours
+   means no alert is ever left active indefinitely. The platform records that it did this, as the user "system".
+3. *Continue, don't duplicate.* If the node becomes abnormal again within `merge_minutes` (60) of recovering,
+   and a person has not yet reviewed the alert, the same alert is continued and `recurrences` increases. A
+   reviewed alert is never reopened by the platform; a fresh problem then opens a new alert.
+4. *Review is optional and one step.* A person may mark an alert Real fault or False alarm from the list, in
+   bulk, or from the alert page, at any time and without acknowledging it first.
+
+**Why humans still decide the outcome.** "Real fault" and "False alarm" are the ground truth for the accuracy
+figures in the report. If the platform labelled its own alerts, those figures would measure nothing. Auto-recovery
+therefore ends an alert but never judges it. Alerts nobody reviews are counted as unreviewed in reports, not
+assumed to be correct or incorrect.
+
+**Why persistence still applies to a returning alert.** A returning node needs the same N consecutive abnormal
+windows before the alert is continued, so one noisy check does not reopen it.
+
+**Trade-offs.** Merging can hide that a fault repeatedly came and went; `recurrences` and the timeline keep that
+visible. The five-check recovery delay means an alert can stay active about ten minutes longer than the problem;
+this is the price of not flapping. Both numbers are configuration, not code.
+
+## Reports (daily, weekly, monthly)
+
+**Why.** An administrator, or the head of department who never opens the platform, needs to answer "how did the
+cluster do this week, and can I trust the alerts?" without reading an alert list. Reports are written
+automatically, so nobody has to remember to make them.
+
+**How.** `core/services/reports.py` computes a report from what the platform has already stored and never touches
+Prometheus. Periods are whole UTC days, Monday-to-Monday weeks and calendar months. The worker calls
+`generate_due` every hour and at start-up. It writes every completed period that has data and no report, so a
+stopped worker catches up and nothing is duplicated (one report per kind and period is a database constraint).
+A report is stored as frozen numbers, so it says what was known at the time. An Administrator can rebuild it to
+include reviews made later. "Today so far", "This week so far" and "This month so far" build a live report that
+is not saved.
+
+**What is reported.** Alerts raised and how they ended; real faults and false alarms among those a person reviewed;
+alerts still waiting for review; the typical and longest alert; the nodes with most alerts; the main cause of each
+alert; whether the platform could see the cluster (hours with data, node-hours scored, Prometheus outages); and
+the models learned. Each report opens with a short plain-language summary and can be printed or saved as a PDF
+from the browser, and downloaded as CSV (alerts and nodes).
+
+**Honesty rules.** The real-fault rate is computed only over alerts a person reviewed, and the summary says
+how many are still waiting, because treating unreviewed alerts as correct or incorrect would make the figure
+meaningless. For a cluster that is switched off overnight, "reliable data" is naturally low; the report says
+so instead of presenting it as a fault. Durations of alerts still active are measured to the end of the period,
+not to the wall clock, so a report does not change when it is opened later.
+
+**CSV safety.** Cells that begin with `=`, `+`, `-` or `@` are prefixed so a spreadsheet cannot run them as formulas.

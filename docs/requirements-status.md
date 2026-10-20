@@ -25,20 +25,35 @@ the report that is not "Done" or "Pending evidence" must be reported in report S
 | FR-14 | Combined scoring (baseline, peers, model) | Done | `Detector.score_window`, `combine` | `PipelineTests` |
 | FR-15 | Alert only after N consecutive abnormal windows | Done | `engine.AlertManager` | `AlertRuleTests` |
 | FR-16 | Excluded periods | Done | `ExcludedPeriod`, `jobs._drop_excluded`, controls page | `test_excluded_periods_are_not_learned_from`, `test_excluded_period_is_saved_and_validated` |
-| FR-17 | Scheduled re-learning from recent normal data | Done | `jobs.relearn`, `run_worker` | `test_scheduled_relearning_...`, `test_relearning_leaves_out_alerts_...` |
+| FR-17 | Scheduled re-learning from recent normal data | Done (extended: zero-touch, see below) | `services/autolearn.py`, `jobs.relearn`, `run_worker` | `test_autolearn`, `test_scheduled_relearning_...`, `test_relearning_leaves_out_alerts_...` |
 | FR-18 | Change threshold and persistence | Done | controls page, `settings_store` | `test_settings_are_validated_and_saved`, `test_effective_config_applies_saved_settings` |
 | FR-19 | Explanation with every alert | Done | `engine.explain`, alert detail page | `test_the_explanation_names_...`, `test_replay_detects_...` |
 | FR-20 | Fleet overview | Done | `views.home`, `fleet.html` | `FleetScreenTests` |
 | FR-21 | Node detail with metric charts and alert points | Done | `views.node_detail`, `node_detail.html` | `test_node_detail_renders_without_data` (charts are drawn in the browser; checked by screenshot) |
 | FR-22 | Alert list filtered by node, status, time range | Done | `views.alert_list` | `AlertFilterTests`, `TriageTests.test_list_filters` |
 | FR-23 | Per-node alert history with outcomes | Done | `node_detail.html` | screenshot; history counts in `explain` |
-| FR-24 | Open → Acknowledged → Closed with outcome | Done | `Alert`, `ReviewService` | `test_models`, `test_review`, `TriageTests` |
+| FR-24 | Alert lifecycle: Active → Recovered (by the platform) → Reviewed with outcome (by a person, optional) | Done (changed, see below) | `Alert`, `ReviewService`, `engine.AlertManager` | `test_models`, `test_review`, `TriageTests`, `AlertLifecycleTests` |
 | FR-25 | Notes | Done | `ReviewService.add_note` | `test_review`, `TriageTests` |
 | FR-26 | Administrator reopens | Done | `ReviewService.reopen` | `TriageTests` |
 | FR-27 | Record user and time of every action and change | Done | `AlertAction`, `ConfigVersion`, `PlatformSetting`, `Job.requested_by` | `test_review`, settings tests |
 | FR-28 | Replay through the pipeline in time order | Done | `jobs.replay` | `PipelineTests` |
 | FR-29 | Import the experiment log | Done | `jobs.import_experiments`, controls page | `ExperimentImportTests`, `test_experiment_upload` |
 | FR-30 | Evaluation report (detection rate, delay, false alerts) | Done | `jobs.evaluate`, controls page | `test_evaluation_reports_event_level_metrics` |
+
+## Changes made after the first deployment on Ranger
+
+The first design (workflows and business rules written before any real cluster was connected) turned out to ask too
+much of an administrator. Running it on Ranger showed three problems, and each change below answers one of them.
+Every change is recorded here so the report can state it as a deliberate deviation rather than leave it to be found.
+
+| Change | Why | Requirement or rule affected |
+|---|---|---|
+| Learning is automatic (`services/autolearn.py`). The administrator no longer picks training dates, runs stress tests to obtain "normal" data or uploads a file. The old manual tools remain under Settings, Advanced, for validating the detector. | The platform was useless until an expert fed it; one mistyped year produced a model "learned" from a period that had not happened. | FR-17 extended; FR-16, FR-28, FR-29 become optional tools. |
+| Learning data cleans itself (`pipeline/cleaning.py`): the most extreme windows are dropped before fitting. | Real data contains the faults we want to detect; a model fitted on them learns them as normal. | New. |
+| An alert is one story: it updates in place while the node stays unusual, ends by itself when the node has been normal for 5 checks or has stopped reporting for 30 minutes, and is continued, not duplicated, if the node flares up within 60 minutes. | An administrator who looks hours later should see one current alert, not a stack of stale ones to delete. Switching Ranger off at night had produced 47 alerts at once. | FR-24 changed; BR-08 now counts only Active alerts. |
+| Reviewing is optional and one step. **BR-05 is relaxed:** an alert no longer has to be acknowledged before it can be closed. Acknowledge remains as "I'm looking into it". The platform never records an outcome itself, so Confirmed and False alarm remain human judgements. | An alert that has recovered by itself should not need to be "acknowledged" before it can be judged. | BR-05 relaxed; BR-06 (outcome if and only if Closed) and BR-07 unchanged. |
+| Alert states are named Active, Being looked at, Recovered and Reviewed. | Plain language for administrators; `OPEN`, `ACKNOWLEDGED`, `RESOLVED`, `CLOSED` in the database. | None. |
+| Replay does not end or merge alerts; it keeps one alert per abnormal run. | Keeps evaluation reproducible and conservative: false-alert counts measured in replay are at least as high as those the live platform would show. | D-5 refined. |
 
 ## Non-functional requirements
 

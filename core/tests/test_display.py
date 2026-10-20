@@ -66,8 +66,15 @@ class UsabilityTests(TestCase):
                                                "compared_with": "own baseline"}]}
         alert.save()
         html = self.client.get(reverse("alert_detail", args=[alert.pk])).content.decode()
-        for text in ("74% lower", "24.0%", "91.0%", "Acknowledge alert", "3 checks in a row"):
+        for text in ("74% lower", "24.0%", "91.0%", "I'm looking into it", "3 checks in a row"):
             self.assertIn(text, html)
+
+    def test_sidebar_shows_recovered_alerts_waiting_for_review_when_nothing_is_active(self):
+        self.client.force_login(make_user("op"))
+        make_alert(status="RESOLVED")
+        html = self.client.get(reverse("alert_list")).content.decode()
+        self.assertIn('aria-label="1 to review"', html)
+        self.assertNotIn("need attention", html)
 
     def test_closing_form_explains_the_two_outcomes(self):
         self.client.force_login(make_user("op"))

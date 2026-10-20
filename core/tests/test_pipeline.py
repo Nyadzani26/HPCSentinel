@@ -326,6 +326,143 @@ class AlertRuleTests(TestCase):
         self.assertEqual(alert.explanation["load_state"], "IDLE")
 
 
+class AlertLifecycleTests(TestCase):
+    """An alert updates while the problem lasts, ends by itself, and is continued rather than duplicated."""
+
+    def setUp(self):
+        from core.models import AlertAction
+        from core.services.config_store import ensure_config_version
+        from core.tests.helpers import make_model
+        self.AlertAction = AlertAction
+        self.cfg = config(persistence_windows=3, alert_threshold=3.0)
+        self.config_version = ensure_config_version(self.cfg)
+        self.model = make_model(self.config_version)
+        self.node = Node.objects.create(name="compute01", source_label="a")
+        self.entry = {"quality": "RELIABLE", "state": "IDLE", "features": {}, "result": {
+            "baseline": 5.0, "peer": 4.0, "model": 4.0, "combined": 4.5, "baseline_detail": {
+                "cpu_busy__mean_15": (6.0, 0.02, 0.9)}, "peer_detail": {}}}
+        self.manager = AlertManager(self.cfg, self.config_version, self.model, Alert.Mode.LIVE)
+
+    def step(self, score, minutes, quality="RELIABLE", entry=None, manager=None):
+        """One cycle for the node, handled the way DetectionCycle does: abnormal windows evaluate, the rest settle."""
+        manager = manager or self.manager
+        at = T0 + timedelta(minutes=minutes)
+        cycle = CycleRun.objects.create(mode=manager.mode, started_at=at, source_reachable=True, config=self.config_version)
+        w = NodeWindow.objects.create(node=self.node, cycle=cycle, window_end=at, quality=quality, load_state="IDLE",
+                                      combined_score=None if quality != "RELIABLE" else score)
+        if manager.is_abnormal(w):
+            return manager.evaluate(self.node, w, "default", entry or self.entry, at)
+        return manager.settle(self.node, w)
+
+    def open_alert(self):
+        for m in (0, 2, 4):
+            self.step(4.5, m)
+        return Alert.objects.get()
+
+    def test_an_active_alert_updates_in_place(self):
+        alert = self.open_alert()
+        later = {**self.entry, "result": {**self.entry["result"], "baseline_detail": {"cpu_busy__mean_15": (9.0, 0.02, 0.95)}}}
+        self.step(6.0, 6, entry=later)
+        alert.refresh_from_db()
+        self.assertEqual(Alert.objects.count(), 1)
+        self.assertEqual(alert.peak_score, 6.0)
+        self.assertEqual(alert.last_seen_at, T0 + timedelta(minutes=6))
+        self.assertEqual(alert.explanation["latest"]["contributors"][0]["observed"], 0.95)
+        self.assertEqual(alert.explanation["contributors"][0]["observed"], 0.9)   # what it looked like when it opened is kept
+
+    def test_the_alert_ends_by_itself_after_enough_normal_checks(self):
+        alert = self.open_alert()
+        for minutes in (6, 8, 10, 12):
+            self.assertIsNone(self.step(1.0, minutes))
+            alert.refresh_from_db()
+            self.assertEqual(alert.status, Alert.Status.OPEN)
+        self.assertEqual(self.step(1.0, 14), alert)
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.resolved_reason, alert.recovered_at), ("RESOLVED", "recovered", T0 + timedelta(minutes=14)))
+        self.assertIsNone(alert.outcome)                         # the platform never decides real fault or false alarm
+        note = alert.actions.get()
+        self.assertEqual((note.action, note.user.username), ("RECOVER", "system"))
+
+    def test_a_short_quiet_spell_does_not_end_it(self):
+        alert = self.open_alert()
+        for minutes in (6, 8, 10):
+            self.step(1.0, minutes)
+        self.step(4.5, 12)                                      # still unusual: the quiet count starts again
+        for minutes in (14, 16, 18, 20):
+            self.step(1.0, minutes)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, Alert.Status.OPEN)
+        self.step(1.0, 22)
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, Alert.Status.RESOLVED)
+
+    def test_a_node_that_flaps_continues_the_same_alert(self):
+        alert = self.open_alert()
+        for minutes in (6, 8, 10, 12, 14):
+            self.step(1.0, minutes)
+        for minutes in (16, 18, 20):
+            self.step(5.0, minutes)
+        self.assertEqual(Alert.objects.count(), 1)
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.recurrences, alert.recovered_at), ("OPEN", 1, None))
+        self.assertEqual(alert.peak_score, 5.0)
+        self.assertEqual(sorted(alert.actions.values_list("action", flat=True)), ["RECOVER", "RECUR"])
+        self.assertEqual(alert.windows.count(), 3 + 3)           # the three that opened it and the three that brought it back
+
+    def test_a_problem_long_after_recovery_is_a_new_alert(self):
+        first = self.open_alert()
+        for minutes in (6, 8, 10, 12, 14):
+            self.step(1.0, minutes)
+        for minutes in (80, 82, 84):
+            self.step(5.0, minutes)
+        self.assertEqual(Alert.objects.count(), 2)
+        first.refresh_from_db()
+        self.assertEqual(first.status, Alert.Status.RESOLVED)   # the earlier one still waits for a quick review
+
+    def test_a_reviewed_alert_is_never_reopened_by_the_platform(self):
+        alert = self.open_alert()
+        alert.status, alert.outcome, alert.closed_at = "CLOSED", "FALSE_ALARM", T0 + timedelta(minutes=5)
+        alert.save()
+        for minutes in (6, 8, 10):
+            self.step(5.0, minutes)
+        self.assertEqual(Alert.objects.count(), 2)
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.recurrences), ("CLOSED", 0))
+
+    def test_a_node_that_stops_reporting_ends_its_alert(self):
+        alert = self.open_alert()
+        for minutes in range(6, 34, 2):
+            self.step(None, minutes, quality="UNRELIABLE")
+        alert.refresh_from_db()
+        self.assertEqual(alert.status, Alert.Status.OPEN)       # 28 minutes of silence is not yet enough
+        self.step(None, 34, quality="UNRELIABLE")                # 30 minutes since it was last seen unusual
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.resolved_reason), ("RESOLVED", "no_data"))
+        self.assertIn("stopped reporting", alert.actions.get().note)
+
+    def test_an_alert_is_never_left_active_indefinitely(self):
+        alert = self.open_alert()
+        self.step(1.0, 10)
+        self.step(None, 6 * 60 + 5, quality="UNRELIABLE")       # hours later, still no clean run of normal checks
+        alert.refresh_from_db()
+        self.assertEqual((alert.status, alert.resolved_reason), ("RESOLVED", "recovered"))
+
+    def test_replay_keeps_separate_abnormal_runs(self):
+        replay = AlertManager(self.cfg, self.config_version, self.model, Alert.Mode.REPLAY)
+        self.assertIsNone(self.step(1.0, 0, manager=replay))     # replay never ends or merges alerts
+        for minutes in (2, 4, 6):
+            self.step(4.5, minutes, manager=replay)
+        self.assertEqual(Alert.objects.filter(mode="REPLAY").count(), 1)
+        self.assertEqual(Alert.objects.get().last_seen_at, None)
+
+    def test_recovery_settings_come_from_the_configuration(self):
+        cfg = config(persistence_windows=3, alert_threshold=3.0)
+        cfg["detection"].update({"recovery_windows": 2, "no_data_minutes": 10, "merge_minutes": 5})
+        manager = AlertManager(cfg, self.config_version, self.model, Alert.Mode.LIVE)
+        self.assertEqual((manager.recovery, manager.no_data, manager.merge),
+                         (2, timedelta(minutes=10), timedelta(minutes=5)))
+
+
 class MinEffectTests(TestCase):
     """A practical-significance floor stops tiny changes in near-constant metrics from scoring the maximum."""
 

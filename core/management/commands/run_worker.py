@@ -9,6 +9,7 @@ from core.config import ConfigError, load_config
 from core.pipeline.cycle import DetectionCycle
 from core.pipeline.jobs import JobError, process_pending
 from core.services import autolearn
+from core.services import reports as reports_service
 from core.services.prometheus import PrometheusError
 from core.services.settings_store import effective_config, make_client
 
@@ -36,6 +37,15 @@ class Worker:
     def jobs(self):
         cfg, client = self.current()
         return process_pending(cfg, client)
+
+    def reports(self):
+        """Write the daily, weekly and monthly reports for every finished period that does not have one yet."""
+        try:
+            made = reports_service.generate_due()
+            if made:
+                log.info("Reports written: %s", ", ".join(str(r) for r in made))
+        except Exception:  # noqa: BLE001 - never stop the worker
+            log.exception("Report generation failed.")
 
     def learn(self):
         """Zero-touch learning: decide whether to learn now (first model, better coverage, or weekly refresh)."""
@@ -69,6 +79,7 @@ class Command(BaseCommand):
             worker.jobs()
             worker.tick()
             worker.learn()
+            worker.reports()
             return
 
         scheduler = BlockingScheduler(timezone="UTC")
@@ -78,9 +89,11 @@ class Command(BaseCommand):
         scheduler.add_job(worker.jobs, "interval", seconds=10, max_instances=1, coalesce=True)
         # The platform decides for itself when to learn; no administrator action is needed (see services/autolearn).
         scheduler.add_job(worker.learn, "interval", minutes=15, max_instances=1, coalesce=True)
+        scheduler.add_job(worker.reports, "interval", minutes=60, max_instances=1, coalesce=True)
         log.info("Worker started; one cycle every %s seconds against %s.", interval, cfg["prometheus"]["url"])
         worker.tick()  # first cycle immediately
         worker.learn()  # and a first look at whether there is enough data to learn from
+        worker.reports()  # and write any report that came due while the worker was stopped
         try:
             scheduler.start()
         except (KeyboardInterrupt, SystemExit):
