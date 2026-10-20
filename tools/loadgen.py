@@ -141,17 +141,136 @@ def run_net_send(seconds, target, port):
     sock.close()
 
 
+# ---- normal workload profiles for baseline collection -------------------------------------------
+# Real jobs differ in what they stress. Each profile is a plausible NORMAL job: one resource is the main
+# one and the others are used lightly. They are never faults; they exist so the platform can learn
+# several kinds of normal.
+PROFILES = {
+    #            cores  cpu duty  memory share  io duty  net duty
+    "cpu":      (1.00, 0.90, 0.10, 0.00, 0.00),
+    "memory":   (0.50, 0.35, 0.40, 0.00, 0.00),
+    "io":       (0.25, 0.30, 0.10, 0.60, 0.00),
+    "comm":     (0.50, 0.40, 0.10, 0.00, 0.60),
+    "mixed":    (0.75, 0.60, 0.20, 0.20, 0.00),
+}
+
+
+def io_duty_loop(deadline, duty, path):
+    name = os.path.join(path, f"loadgen-{os.getpid()}.bin")
+    chunk = os.urandom(1 << 20)
+    try:
+        while time.time() < deadline:
+            t0 = time.time()
+            with open(name, "wb") as f:
+                for _ in range(256):
+                    f.write(chunk)
+                f.flush()
+                os.fsync(f.fileno())
+            busy = time.time() - t0
+            rest = busy * (1 - duty) / max(duty, 0.01)
+            time.sleep(min(rest, max(0.0, deadline - time.time())))
+    finally:
+        if os.path.exists(name):
+            os.remove(name)
+
+
+def net_duty_loop(deadline, duty, peer, port):
+    """Exchange traffic with a peer in both directions: listen for it and send to it."""
+    import threading
+
+    def listen():
+        srv = socket.socket()
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("", port))
+        srv.listen(1)
+        srv.settimeout(max(1.0, deadline - time.time() + 30))
+        try:
+            conn, _ = srv.accept()
+        except OSError:
+            return
+        conn.settimeout(5)
+        while time.time() < deadline:
+            try:
+                if not conn.recv(1 << 20):
+                    break
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+        conn.close()
+        srv.close()
+
+    t = threading.Thread(target=listen, daemon=True)
+    t.start()
+    payload = b"\0" * (1 << 20)
+    sock = None
+    for _ in range(90):
+        try:
+            sock = socket.create_connection((peer, port), timeout=5)
+            break
+        except OSError:
+            time.sleep(2)
+    if sock is None:
+        return
+    try:
+        while time.time() < deadline:
+            t0 = time.time()
+            for _ in range(64):
+                sock.sendall(payload)
+            busy = time.time() - t0
+            time.sleep(min(busy * (1 - duty) / max(duty, 0.01), max(0.0, deadline - time.time())))
+    except OSError:
+        pass  # the peer finished a few seconds earlier than this node
+    finally:
+        sock.close()
+    t.join(timeout=10)
+
+
+def run_workload(seconds, profile, peer, port, path, log):
+    cores_share, cpu_duty, mem_share, io_duty, net_duty = PROFILES[profile]
+    rng = random.Random(zlib.crc32(f"{socket.gethostname()}{time.time():.0f}".encode()))
+    cpu_duty = min(1.0, cpu_duty * rng.uniform(0.85, 1.1))
+    start = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    deadline = time.time() + seconds
+    cores = max(1, int(len(os.sched_getaffinity(0)) * cores_share))
+    procs = [mp.Process(target=spin, args=(deadline, cpu_duty)) for _ in range(cores)]
+    if mem_share:
+        procs.append(mp.Process(target=hold_memory, args=(deadline, int(mem_total_bytes() * mem_share * rng.uniform(0.85, 1.1)), 1.0)))
+    if io_duty:
+        procs.append(mp.Process(target=io_duty_loop, args=(deadline, io_duty, path)))
+    if net_duty:
+        if not peer:
+            raise SystemExit("the comm profile needs --peer")
+        procs.append(mp.Process(target=net_duty_loop, args=(deadline, net_duty, peer, port)))
+    for p in procs:
+        p.start()
+    for p in procs:
+        p.join()
+    end = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+    if log:
+        import fcntl
+        with open(log, "a") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            f.write(f"{socket.gethostname().split('.')[0]},{profile},{start},{end}\n")
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=["job", "mem", "io", "net-recv", "net-send"])
+    ap.add_argument("mode", choices=["job", "mem", "io", "net-recv", "net-send", "workload"])
     ap.add_argument("--seconds", type=int, required=True)
     ap.add_argument("--mem-frac", type=float, default=None)
     ap.add_argument("--path", default="/var/tmp")
     ap.add_argument("--target")
     ap.add_argument("--port", type=int, default=5201)
+    ap.add_argument("--profile", choices=sorted(PROFILES), default="cpu")
+    ap.add_argument("--peer")
+    ap.add_argument("--log")
     a = ap.parse_args()
     print(f"{socket.gethostname()} {a.mode} for {a.seconds}s", flush=True)
-    if a.mode == "job":
+    if a.mode == "workload":
+        run_workload(a.seconds, a.profile, a.peer, a.port, a.path, a.log)
+    elif a.mode == "job":
         run_job(a.seconds, a.mem_frac if a.mem_frac is not None else 0.15)
     elif a.mode == "mem":
         run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.5)
