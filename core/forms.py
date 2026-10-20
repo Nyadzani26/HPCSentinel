@@ -1,5 +1,6 @@
 """Forms for the review and control screens. Validation lives here, not in the templates (FR-22, FR-24, FR-26)."""
 from django import forms
+from django.utils import timezone
 
 from core.models import Alert, ExcludedPeriod, ModelVersion
 
@@ -22,6 +23,11 @@ class NoteForm(forms.Form):
     note = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), error_messages={"required": "Write a note first."})
 
 
+def _not_in_future(data, what):
+    if data.get("end") and data["end"] > timezone.now():
+        raise forms.ValidationError(f"The end of the {what} cannot be in the future. Check the year and the time.")
+
+
 class TrainForm(forms.Form):
     start = _DateTimeField()
     end = _DateTimeField()
@@ -31,6 +37,7 @@ class TrainForm(forms.Form):
         data = super().clean()
         if data.get("start") and data.get("end") and data["end"] <= data["start"]:
             raise forms.ValidationError("The end of the period must be after its start.")
+        _not_in_future(data, "training period")
         return data
 
 
@@ -48,6 +55,7 @@ class ModelPeriodForm(forms.Form):
         data = super().clean()
         if data.get("start") and data.get("end") and data["end"] <= data["start"]:
             raise forms.ValidationError("The end of the period must be after its start.")
+        _not_in_future(data, "period")
         return data
 
 

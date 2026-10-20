@@ -148,6 +148,13 @@ class ControlsTests(TestCase):
         self.assertContains(response, "must be after its start")
         self.assertEqual(Job.objects.count(), 0)
 
+    def test_a_period_ending_in_the_future_is_rejected(self):
+        # A year typed as 2027 once produced a model "learned from" a period that had not happened yet.
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("controls"), {"action": "train", "start": "2026-10-01T00:00", "end": "2099-10-03T00:00"})
+        self.assertContains(response, "cannot be in the future")
+        self.assertEqual(Job.objects.count(), 0)
+
     def test_excluded_period_is_saved_and_validated(self):  # FR-16, BR-03
         self.client.force_login(self.admin)
         self.client.post(reverse("controls"), {"action": "excluded", "start_at": "2026-10-01T10:00", "end_at": "2026-10-01T12:00", "reason": "HPL run"})
