@@ -25,7 +25,7 @@ cluster:
   #   node_name_regex: '^10\.10\.10\.1(?P<n>\d\d):9100$'
   #   node_name_template: 'compute{n}'
   node_name_regex: '^10\.10\.10\.1(?P<n>\d\d):9100$'
-  node_name_template: 'node{n}'
+  node_name_template: 'compute{n}'
 
 detection:
   retrieval_interval_seconds: 120   # how often a detection cycle runs (default two minutes)
