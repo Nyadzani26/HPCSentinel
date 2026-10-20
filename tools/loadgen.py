@@ -11,7 +11,7 @@ Standard library only, so it runs on any node with python3. It produces two kind
 
 Examples:
   python3 loadgen.py job  --seconds 5400
-  python3 loadgen.py mem  --seconds 900 --mem-frac 0.8
+  python3 loadgen.py mem  --seconds 900 --mem-frac 0.6
   python3 loadgen.py io   --seconds 900 --path /var/tmp
   python3 loadgen.py net-recv --seconds 900 --port 5201
   python3 loadgen.py net-send --seconds 900 --target compute02 --port 5201
@@ -154,7 +154,7 @@ def main():
     if a.mode == "job":
         run_job(a.seconds, a.mem_frac if a.mem_frac is not None else 0.2)
     elif a.mode == "mem":
-        run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.8)
+        run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.6)
     elif a.mode == "io":
         run_io(a.seconds, a.path)
     elif a.mode == "net-recv":
