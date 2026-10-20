@@ -265,6 +265,34 @@ class Alert(models.Model):
         return max(end - self.opened_at, timedelta(0))
 
 
+class ClusterEvent(models.Model):
+    """Many nodes becoming unusual at the same moment, recorded once instead of as one alert per node (stage 4)."""
+
+    started_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)
+    peak_nodes = models.PositiveIntegerField(default=0)       # most nodes unusual in a single cycle
+    peak_reliable = models.PositiveIntegerField(default=0)    # nodes with usable data in that cycle
+    nodes = models.JSONField(default=list)                    # every node involved at any point
+    causes = models.JSONField(default=dict)                   # main contributing metric -> most nodes it was the main cause on
+    quiet_cycles = models.PositiveIntegerField(default=0)     # consecutive ordinary cycles since the last unusual one
+
+    class Meta:
+        ordering = ["-started_at"]
+        indexes = [models.Index(fields=["started_at"])]
+
+    @property
+    def is_active(self):
+        return self.ended_at is None
+
+    @property
+    def lasted(self):
+        return max((self.ended_at or self.last_seen_at) - self.started_at, timedelta(0))
+
+    def __str__(self):
+        return f"Cluster event {self.started_at:%Y-%m-%d %H:%M} ({self.peak_nodes} nodes)"
+
+
 class Report(models.Model):
     """A saved daily, weekly or monthly summary (stage 3). The numbers are frozen when it is generated, so a report
     read next month says what was known at the time; an Administrator can regenerate it to include later reviews."""

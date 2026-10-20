@@ -39,6 +39,8 @@ detection:
   recovery_windows: 5               # an alert ends by itself after this many normal checks in a row (2 minutes each)
   no_data_minutes: 30               # ...or when the node has stopped reporting for this long (for example, switched off)
   merge_minutes: 60                 # a node that becomes unusual again within this time reopens the same alert
+  cluster_event_fraction: 0.3       # when this share of the nodes turns unusual together it is one cluster-wide event, not many alerts
+  cluster_event_min_nodes: 5        # ...and at least this many nodes, so a small cluster is not called an event by two nodes
   relearn_hours: 168                # re-learn baselines this often; 0 turns scheduled re-learning off (FR-17)
   relearn_days: 14                  # length of the rolling window of recent data used
   # Smallest change that matters, in each metric's own unit. A metric must move at least this much before the

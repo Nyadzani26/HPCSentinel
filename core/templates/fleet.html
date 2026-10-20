@@ -35,6 +35,7 @@
 </div>
 {% endif %}
 
+{% include "_events.html" %}
 {% if to_review %}
 <div class="notice" style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
   <span><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</span>

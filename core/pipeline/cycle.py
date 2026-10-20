@@ -16,7 +16,7 @@ from core.config import node_name
 from core.models import Alert, CycleRun, ModelVersion, Node, NodeWindow
 from core.pipeline import features as feat
 from core.pipeline.detector import Detector
-from core.pipeline.engine import AlertManager, DEFAULT_GROUP, record_window, rows_at, score_rows
+from core.pipeline.engine import AlertManager, DEFAULT_GROUP, apply_alert_rules, record_window, rows_at, score_rows
 from core.services.config_store import ensure_config_version
 from core.services.prometheus import PrometheusClient, PrometheusError
 
@@ -64,15 +64,8 @@ class DetectionCycle:
             [record_window(cycle, by_name[name], entry, now.to_pydatetime(), model) for name, entry in entries.items()
              if name in by_name]
         )
-        raised = 0
-        active = set(Alert.objects.filter(mode=Alert.Mode.LIVE, status__in=Alert.ACTIVE).values_list("node_id", flat=True))
-        for window in NodeWindow.objects.filter(cycle=cycle).select_related("node"):
-            if manager.is_abnormal(window):
-                raised += bool(manager.evaluate(window.node, window, groups[window.node.name],
-                                                entries[window.node.name], now.to_pydatetime()))
-            elif window.node_id in active:
-                manager.settle(window.node, window)
-        return raised
+        windows = list(NodeWindow.objects.filter(cycle=cycle).select_related("node"))
+        return apply_alert_rules(manager, windows, entries, groups, now.to_pydatetime(), self.cfg)
 
     def sync_nodes(self):
         """Create a Node row for every node Prometheus reports and is not yet known (FR-05)."""

@@ -4,6 +4,7 @@
 {% block content %}
 <div class="head"><div><h1>Alerts</h1>
   <p class="muted">An alert follows one problem on one node. It updates while the problem lasts and closes itself when the node is normal again, so you never have to acknowledge it first. Telling the platform whether it was a real fault is optional, and it is how the platform's accuracy gets measured.</p></div></div>
+{% include "_events.html" %}
 <div class="toolbar">
   <div class="chips" role="group" aria-label="Filter by status">
     {% for key, label, n in filters %}<a class="chip {% if status == key %}on{% endif %}" href="?status={{ key }}{% if node %}&node={{ node|urlencode }}{% endif %}{% if date_from %}&from={{ date_from }}{% endif %}{% if date_to %}&to={{ date_to }}{% endif %}">{{ label }}<span class="n">{{ n }}</span></a>{% endfor %}

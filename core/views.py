@@ -19,7 +19,7 @@ from django.views.decorators.http import require_POST
 
 from core import display, forms
 from core.config import ConfigError, load_config
-from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
+from core.models import (Alert, AlertAction, ClusterEvent, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
                          Job, ModelVersion, Node, NodeWindow, Report, User)
 from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
@@ -91,7 +91,7 @@ def home(request):
          "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
     ]
     return render(request, "fleet.html", {
-        "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(),
+        "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(), "events": recent_events(),
         "tiles": tiles, "counts": counts, "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
         "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
         "total": len(tiles),
@@ -162,6 +162,24 @@ def node_detail(request, name):
     })
 
 
+def recent_events(now=None):
+    """Cluster-wide events that are still going or ended within the last day, newest first."""
+    now = now or timezone.now()
+    return list(ClusterEvent.objects.filter(Q(ended_at__isnull=True) | Q(ended_at__gte=now - timedelta(days=1))).order_by("-started_at")[:3])
+
+
+@login_required
+def event_detail(request, pk):
+    """One cluster-wide event: which nodes, what changed, and why it is one event rather than many alerts."""
+    event = get_object_or_404(ClusterEvent, pk=pk)
+    causes = sorted(event.causes.items(), key=lambda kv: (-kv[1], kv[0]))
+    return render(request, "event.html", {
+        "event": event, "nodes": sorted(event.nodes),
+        "causes": [{"label": display.label(m), "nodes": n} for m, n in causes],
+        "share": round(100 * event.peak_nodes / event.peak_reliable) if event.peak_reliable else 0,
+    })
+
+
 ALERT_TABS = [("live", "Active"), ("review", "Needs review"), ("closed", "Reviewed"), ("all", "All")]
 
 
@@ -198,7 +216,7 @@ def alert_list(request):
         "alerts": qs.order_by("-opened_at")[:200], "status": status, "node": node, "counts": counts,
         "filters": [(key, label, counts[key]) for key, label in ALERT_TABS],
         "date_from": request.GET.get("from", ""), "date_to": request.GET.get("to", ""), "errors": errors,
-        "can_review": status in ("live", "review", "all"),
+        "can_review": status in ("live", "review", "all"), "events": recent_events(),
     })
 
 

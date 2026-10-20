@@ -19,7 +19,7 @@ from django.db.models.functions import TruncHour
 from django.utils import timezone
 
 from core import display
-from core.models import Alert, CycleRun, ModelVersion, NodeWindow, Report
+from core.models import Alert, ClusterEvent, CycleRun, ModelVersion, NodeWindow, Report
 
 CYCLE_MINUTES = 2          # one window per node per cycle; used only to turn window counts into node-hours
 TOP = 10                   # rows in the per-node and per-metric tables
@@ -135,6 +135,11 @@ def build(kind: str, start, end, now=None) -> dict:
                for m in ModelVersion.objects.filter(trained_at__gte=start, trained_at__lt=end).order_by("trained_at")]
     in_use = ModelVersion.objects.filter(trained_at__lt=end).order_by("-trained_at").first()
 
+    events = [{"pk": e.pk, "started": f"{e.started_at:%Y-%m-%d %H:%M}", "minutes": _minutes(e.lasted), "active": e.is_active,
+               "peak_nodes": e.peak_nodes, "peak_reliable": e.peak_reliable,
+               "cause": display.label(max(e.causes, key=e.causes.get)) if e.causes else ""}
+              for e in ClusterEvent.objects.filter(started_at__gte=start, started_at__lt=end).order_by("started_at")]
+
     data = {
         "kind": kind, "label": label_for(kind, start), "partial": partial,
         "start": start.isoformat(), "end": end.isoformat(), "until": until.isoformat(), "until_label": f"{until:%Y-%m-%d %H:%M}",
@@ -145,7 +150,7 @@ def build(kind: str, start, end, now=None) -> dict:
         "alerts": stats, "previous_opened": prev_alerts,
         "by_node": nodes, "by_metric": metrics, "by_state": per_state,
         "learning": {"models": learned, "in_use": in_use.label if in_use else None},
-        "events": [],
+        "events": events,
     }
     data["summary"] = summarise(data)
     return data
@@ -183,6 +188,10 @@ def summarise(d: dict) -> list[str]:
             lines.append(f"The node with the most alerts was {top['node']} ({top['alerts']}, unusual for {top['minutes']:g} minutes in total).")
         if d["by_metric"]:
             lines.append(f"The most common main cause was {d['by_metric'][0]['label'].lower()}.")
+    if d["events"]:
+        biggest = max(d["events"], key=lambda e: e["peak_nodes"])
+        lines.append(f"{len(d['events'])} cluster-wide event{'s' if len(d['events']) != 1 else ''} happened, where many nodes changed at once "
+                     f"(the largest involved {biggest['peak_nodes']} of {biggest['peak_reliable']} nodes). They are counted as events, not as individual alerts.")
     new = d["learning"]["models"]
     if new:
         lines.append(f"The platform learned {len(new)} new model{'s' if len(new) != 1 else ''} {period} "

@@ -67,6 +67,12 @@ def validate(cfg: dict) -> dict:
         value = det.get(key, default)
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < low:
             raise ConfigError(f"'{key}' in detection must be a number, at least {low}.")
+    fraction = det.get("cluster_event_fraction", 0.3)
+    if isinstance(fraction, bool) or not isinstance(fraction, (int, float)) or not 0 < fraction <= 1:
+        raise ConfigError("'cluster_event_fraction' in detection must be a share of the nodes, above 0 and at most 1.")
+    minimum = det.get("cluster_event_min_nodes", 5)
+    if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 2:
+        raise ConfigError("'cluster_event_min_nodes' in detection must be a whole number, at least 2.")
     if not isinstance(det.get("self_clean", True), bool):
         raise ConfigError("'self_clean' in detection must be true or false.")
 

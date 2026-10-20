@@ -237,3 +237,34 @@ class AlertManager:
                           "The node has been normal again, so this alert ended by itself." if reason == "recovered"
                           else "The node stopped reporting, so this alert ended by itself.")
         return alert
+
+
+def apply_alert_rules(manager: "AlertManager", windows, entries: dict, groups: dict, now, cfg: dict) -> int:
+    """Everything that follows scoring in one cycle: cluster events, then each node's alert rules. Returns alerts raised.
+
+    Used unchanged by the live cycle. Replay does not use it: replay keeps one alert per abnormal run so that
+    evaluation stays conservative and reproducible (see AlertManager).
+    """
+    from core.services import events
+
+    abnormal = [w for w in windows if manager.is_abnormal(w)]
+    reliable = sum(w.quality == NodeWindow.Quality.RELIABLE for w in windows)
+    causes: dict[str, int] = {}
+    for w in abnormal:
+        result = entries[w.node.name].get("result")
+        if result:
+            top = explain(w.node, groups[w.node.name], entries[w.node.name], manager.threshold, manager.persistence)["contributors"][:1]
+            if top:
+                causes[top[0]["metric"]] = causes.get(top[0]["metric"], 0) + 1
+    holding = events.update(cfg, now, [w.node.name for w in abnormal], reliable, causes) if manager.mode == Alert.Mode.LIVE else None
+    active = set(Alert.objects.filter(mode=manager.mode, status__in=Alert.ACTIVE).values_list("node_id", flat=True))
+    raised = 0
+    for window in windows:
+        name = window.node.name
+        if manager.is_abnormal(window):
+            if holding is not None and window.node_id not in active:
+                continue                         # part of a cluster-wide event: reported once, not once per node
+            raised += bool(manager.evaluate(window.node, window, groups[name], entries[name], now))
+        elif window.node_id in active:
+            manager.settle(window.node, window)
+    return raised

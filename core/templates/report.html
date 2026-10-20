@@ -49,6 +49,15 @@
   </section>
 </div>
 
+{% if d.events %}
+<section class="card" style="margin-top:1.2rem"><h2>Cluster-wide events</h2>
+  <table><thead><tr><th>Started (UTC)</th><th class="num">Nodes at the peak</th><th class="num">Minutes</th><th>Main cause</th></tr></thead><tbody>
+  {% for e in d.events %}<tr><td><a href="{% url 'event_detail' e.pk %}">{{ e.started }}</a></td><td class="num">{{ e.peak_nodes }} of {{ e.peak_reliable }}</td><td class="num">{{ e.minutes|floatformat:"-1" }}{% if e.active %} (going){% endif %}</td><td>{{ e.cause|default:"–" }}</td></tr>{% endfor %}
+  </tbody></table>
+  <p class="muted small" style="margin-top:.6rem">Many nodes changing together are reported once, as an event, instead of as one alert per node.</p>
+</section>
+{% endif %}
+
 <div class="grid2" style="margin-top:1.2rem">
   <section class="card"><h2>Could the platform see the cluster?</h2>
     <table><tbody>

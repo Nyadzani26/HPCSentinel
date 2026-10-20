@@ -1,0 +1,11 @@
+{% load sentinel %}
+{% for e in events %}
+<div class="notice event {% if e.is_active %}bad{% endif %}" role="status">
+  <div>
+    <strong>Cluster-wide event</strong> · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once{% if e.is_active %} and it is <strong>still going</strong>{% endif %}.
+    <span class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} UTC){% if not e.is_active %}, lasted {{ e.lasted|span }}{% endif %}.
+    This is shown as one event instead of {{ e.peak_nodes }} separate alerts, because that many nodes changing together points to something shared (power, cooling, network, the scheduler, or the cluster being switched on or off) rather than {{ e.peak_nodes }} faulty nodes.</span>
+  </div>
+  <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
+</div>
+{% endfor %}

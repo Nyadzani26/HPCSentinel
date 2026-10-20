@@ -19,6 +19,7 @@ urlpatterns = [
     path("alerts/<int:pk>/close/", views.alert_close, name="alert_close"),
     path("alerts/<int:pk>/reopen/", views.alert_reopen, name="alert_reopen"),
     path("alerts/<int:pk>/note/", views.alert_note, name="alert_note"),
+    path("events/<int:pk>/", views.event_detail, name="event_detail"),
     path("reports/", views.reports_list, name="reports"),
     path("reports/now/<str:kind>/", views.report_now, name="report_now"),
     path("reports/now/<str:kind>/<str:what>.csv", views.report_now_csv, name="report_now_csv"),

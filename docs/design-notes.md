@@ -138,3 +138,27 @@ so instead of presenting it as a fault. Durations of alerts still active are mea
 not to the wall clock, so a report does not change when it is opened later.
 
 **CSV safety.** Cells that begin with `=`, `+`, `-` or `@` are prefixed so a spreadsheet cannot run them as formulas.
+
+## Cluster-wide events (one event instead of forty-seven alerts)
+
+**Problem.** Switching Ranger off at 16:29 made 47 nodes change at the same moment and produced 47 alerts. The
+administrator then had to close them one at a time, and the real signal (one shared cause) was buried. The same
+would happen with a power or cooling fault, a network switch failing, or a large job starting on every node.
+
+**Decision.** In each cycle `engine.apply_alert_rules` counts how many nodes with usable data are abnormal. If at
+least `cluster_event_min_nodes` (5) and at least `cluster_event_fraction` (30%) of them are abnormal together,
+`services/events.py` records one `ClusterEvent` (when it started, the most nodes involved, which nodes, and the
+main contributing metric) and holds back the opening of new per-node alerts for as long as the event lasts.
+The event ends after three consecutive ordinary cycles.
+
+**What is not hidden.** A node that already has an alert keeps updating it. Windows are stored exactly as before,
+so a node that is still abnormal when the event ends meets the persistence rule at once and raises its own alert.
+A genuine fault underneath an event is therefore delayed, never lost.
+
+**Why a share and a minimum.** Independent faults rarely strike 30% of a cluster in the same two minutes, so the
+share separates a shared cause from a coincidence. The minimum stops two nodes of a four-node test cluster being
+called an event. Both are configuration; they have not been tuned on a labelled cluster-wide incident, and the
+Ranger shutdown is the only real example so far.
+
+**Known limitation.** The rule detects that many nodes changed together, not why. A planned shutdown and a power
+failure look the same to it. The event page says what changed and leaves the interpretation to the administrator.
