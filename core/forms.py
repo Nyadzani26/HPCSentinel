@@ -78,10 +78,37 @@ class ExperimentUploadForm(forms.Form):
     file = forms.FileField(help_text="CSV with columns node, anomaly_type, start, end, intensity (optional).")
 
 
+# One choice instead of two numbers: how unusual a node must be, and for how long, before it is worth an alert.
+SENSITIVITY = {"relaxed": (4.0, 4), "balanced": (3.0, 3), "sensitive": (2.5, 2)}
+SENSITIVITY_CHOICES = [("relaxed", "Relaxed"), ("balanced", "Balanced"), ("sensitive", "Sensitive"), ("custom", "Custom")]
+
+
+def sensitivity_of(threshold, persistence) -> str:
+    for name, (t, n) in SENSITIVITY.items():
+        if float(threshold) == t and int(persistence) == n:
+            return name
+    return "custom"
+
+
 class SettingsForm(forms.Form):
     prometheus_url = forms.CharField(label="Prometheus address", max_length=200)
-    alert_threshold = forms.FloatField(label="Alert threshold", min_value=0.1, max_value=100)
-    persistence_windows = forms.IntegerField(label="Consecutive abnormal windows required", min_value=1, max_value=20)
+    sensitivity = forms.ChoiceField(choices=SENSITIVITY_CHOICES, required=False, widget=forms.RadioSelect)
+    alert_threshold = forms.FloatField(label="Alert threshold", min_value=0.1, max_value=100, required=False,
+                                       localize=False, widget=forms.TextInput(attrs={"inputmode": "decimal"}))
+    persistence_windows = forms.IntegerField(label="Consecutive abnormal windows required", min_value=1, max_value=20, required=False)
+
+    def clean(self):
+        data = super().clean()
+        choice = data.get("sensitivity") or "custom"
+        if choice in SENSITIVITY:
+            data["alert_threshold"], data["persistence_windows"] = SENSITIVITY[choice]
+            self.errors.pop("alert_threshold", None)
+            self.errors.pop("persistence_windows", None)
+        else:
+            for field in ("alert_threshold", "persistence_windows"):
+                if data.get(field) is None and field not in self.errors:
+                    self.add_error(field, "Enter a number.")
+        return data
 
 
 class UserCreateForm(forms.Form):

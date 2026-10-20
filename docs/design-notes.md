@@ -43,3 +43,37 @@ median warning before a failure fell from 3.9 to 3.3 hours. Doubling the floors 
 cost recall (0.57), which is why the defaults are not larger. The gain on that dataset is modest because its main source of
 false alerts is different: five normal workload types are folded into one "loaded" state. That is a separate improvement
 (learned operating regimes) and is not part of this change.
+
+## Zero-touch learning (replaces the manual train, upload and date-picking workflow)
+
+**Problem.** The first design asked an administrator to pick training dates, name a model, run stress tests to
+obtain "normal" data and upload a CSV of injected faults. On the Ranger test cluster this meant a person had to
+know when the cluster was healthy before the platform could be useful, and one mistyped year (2027) produced a
+model "learned" from a period that had not happened. A tool that needs an expert to feed it is not a tool a
+production administrator adopts.
+
+**Decision.** The platform decides for itself when and from what to learn (`core/services/autolearn.py`). The
+worker checks every 15 minutes and chooses one of four outcomes: *collecting* (not enough clean data yet; it
+reports progress), *learned* (a first model, or a better one because enough new data arrived), *current*
+(nothing to do) or *waiting* (it checked or learned recently). The learning window is the last `learn_days`
+days (default 14) of reliable data, minus time around alerts nobody dismissed as false alarms and any
+maintenance period an administrator marked.
+
+**Self-cleaning.** Real data contains the faults we are trying to detect, and a model fitted on them learns
+them as normal. After the first fit the learner scores its own training rows and discards the most extreme ones
+(z above 6, at most 5% of any node and load state), then fits again (`core/pipeline/cleaning.py`). The number of
+rows removed is stored with the model and shown in the interface.
+
+**Interface.** Settings keeps what only a person can know (where Prometheus is, how sensitive alerts should be)
+as three named choices: Relaxed (threshold 4.0, 4 checks), Balanced (3.0, 3; the default) and Sensitive (2.5, 2),
+with the raw numbers behind a "Fine-tune" disclosure. A Learning tab states in plain language what has been
+learned and how much data it used. The old manual tools (learn from a given period, replay and evaluate, mark
+periods to ignore) remain under Advanced because they are needed to *validate* the detector for the dissertation,
+but nothing in normal operation depends on them.
+
+**What is deliberately not automated.** The detector never learns from synthetic data. Synthetic and injected
+anomalies are used only to test it.
+
+**Trade-offs.** Automatic learning can absorb a slow, genuine drift as normal. The 14-day window bounds how far
+that can go, a weekly relearn is the upper limit on staleness, and the cleaning step removes sudden departures
+but not gradual ones. This is recorded as a known limitation.

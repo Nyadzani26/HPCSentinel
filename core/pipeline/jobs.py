@@ -76,14 +76,12 @@ def _drop_excluded(frame: pd.DataFrame, extra=()) -> pd.DataFrame:
     return frame
 
 
-def train(cfg: dict, client, start, end, label: str | None = None, user: User | None = None,
-          job: Job | None = None, exclusions=()) -> ModelVersion:
-    """Learn baselines and the Isolation Forest from a period believed to be normal (FR-28)."""
+def build_training_tables(cfg: dict, client, start, end, exclusions=()):
+    """Reliable feature rows per node for [start, end], with excluded periods removed (BR-02, BR-03).
+
+    Returns ({node name: table}, {node name: group name}).
+    """
     start, end = parse_time(start), parse_time(end)
-    if end <= start:
-        raise JobError("The end of the training period must be after its start.")
-    if (end - start) < timedelta(hours=6):
-        raise JobError("The training period must cover at least six hours.")
     frames = _node_frames(_history(client, cfg, start - timedelta(hours=1), end))
     if not frames:
         raise JobError("Prometheus returned no data for the monitored nodes in that period.")
@@ -98,8 +96,38 @@ def train(cfg: dict, client, start, end, label: str | None = None, user: User | 
             groups[node.name] = node.group.name if node.group else DEFAULT_GROUP
     if not tables:
         raise JobError("There was no reliable data to learn from in that period.")
-    detector = Detector.train(tables, groups, weights=cfg["detection"].get("weights"),
-                               min_effect=cfg["detection"].get("min_effect"))
+    return tables, groups
+
+
+def coverage_of(tables: dict[str, pd.DataFrame], stride: int, detector: Detector | None = None) -> dict:
+    """What the learning data contains, in terms an administrator can read."""
+    idle = sum(int((t[feat.STATE_COL] == "IDLE").sum()) for t in tables.values())
+    loaded = sum(int((t[feat.STATE_COL] == "LOADED").sum()) for t in tables.values())
+    out = {"nodes": len(tables), "rows": idle + loaded, "rows_idle": idle, "rows_loaded": loaded,
+           "hours_per_node": round(sum(len(t) for t in tables.values()) * stride / 60 / max(1, len(tables)), 1)}
+    from core.pipeline.detector import MIN_TRAIN_ROWS_BASELINE
+    for state, key in (("IDLE", "idle"), ("LOADED", "loaded")):
+        out[f"nodes_own_{key}"] = sum(int((t[feat.STATE_COL] == state).sum()) >= MIN_TRAIN_ROWS_BASELINE for t in tables.values())
+    if detector is not None:
+        out["forests"] = sorted(detector.forests)
+    return out
+
+
+def fit_and_register(cfg: dict, tables: dict, groups: dict, start, end, label: str | None = None,
+                     user: User | None = None, job: Job | None = None, origin: str = "manual") -> ModelVersion:
+    """Fit the detector on prepared learning data, drop windows that look abnormal, and save the model (BR-10)."""
+    det_cfg = cfg["detection"]
+    stride = int(det_cfg.get("train_stride_minutes", 5))
+    weights, effects = det_cfg.get("weights"), det_cfg.get("min_effect")
+    detector = Detector.train(tables, groups, weights=weights, min_effect=effects)
+    trimmed = 0
+    if det_cfg.get("self_clean", True):
+        from core.pipeline.cleaning import trim_contamination
+        tables, trimmed = trim_contamination(detector, tables, groups, z_cut=float(det_cfg.get("self_clean_z", 6.0)))
+        if trimmed:
+            detector = Detector.train(tables, groups, weights=weights, min_effect=effects)
+    coverage = coverage_of(tables, stride, detector)
+    coverage["trimmed_rows"] = trimmed
     version_no = ModelVersion.objects.count() + 1
     label = label or f"model-{version_no:03d}"
     store = Path(settings.MODEL_STORE)
@@ -108,11 +136,30 @@ def train(cfg: dict, client, start, end, label: str | None = None, user: User | 
     detector.save(path)
     config_version = ensure_config_version(cfg)
     return ModelVersion.objects.create(
-        label=label, trained_at=timezone.now(), train_start=start, train_end=end,
-        baselines={"nodes": len(tables), "rows": int(sum(len(t) for t in tables.values())),
-                   "forests": sorted(detector.forests), "baselines": detector.baselines, "pooled": detector.pooled},
+        label=label, trained_at=timezone.now(), train_start=parse_time(start), train_end=parse_time(end),
+        baselines={"nodes": len(tables), "rows": coverage["rows"], "forests": sorted(detector.forests),
+                   "baselines": detector.baselines, "pooled": detector.pooled, "coverage": coverage, "origin": origin},
         file_path=str(path), config=config_version, job=job,
     )
+
+
+def train(cfg: dict, client, start, end, label: str | None = None, user: User | None = None,
+          job: Job | None = None, exclusions=()) -> ModelVersion:
+    """Learn baselines and the Isolation Forest from a period believed to be normal (FR-28)."""
+    start, end = parse_time(start), parse_time(end)
+    if end <= start:
+        raise JobError("The end of the training period must be after its start.")
+    if (end - start) < timedelta(hours=6):
+        raise JobError("The training period must cover at least six hours.")
+    tables, groups = build_training_tables(cfg, client, start, end, exclusions)
+    return fit_and_register(cfg, tables, groups, start, end, label, user, job)
+
+
+def suspect_spans(now, days: int):
+    """Time around alerts nobody has dismissed as false alarms is not learned from, so a developing fault is not learned as normal."""
+    suspect = Alert.objects.filter(mode=Alert.Mode.LIVE, opened_at__gte=now - timedelta(days=days)) \
+        .exclude(outcome=Alert.Outcome.FALSE_ALARM)
+    return [(a.opened_at - timedelta(hours=1), a.closed_at or now) for a in suspect]
 
 
 def relearn(cfg: dict, client, now=None) -> ModelVersion:
@@ -123,11 +170,9 @@ def relearn(cfg: dict, client, now=None) -> ModelVersion:
     """
     now = parse_time(now) if now else timezone.now()
     days = int(cfg["detection"].get("relearn_days", 14))
-    suspect = Alert.objects.filter(mode=Alert.Mode.LIVE, opened_at__gte=now - timedelta(days=days)) \
-        .exclude(outcome=Alert.Outcome.FALSE_ALARM)
-    exclusions = [(a.opened_at - timedelta(hours=1), a.closed_at or now) for a in suspect]
     label = "auto-" + now.strftime("%Y%m%d-%H%M")
-    return train(cfg, client, now - timedelta(days=days), now, label=label, user=get_system_user(), exclusions=exclusions)
+    return train(cfg, client, now - timedelta(days=days), now, label=label, user=get_system_user(),
+                 exclusions=suspect_spans(now, days))
 
 
 def _clear_replay():
@@ -242,7 +287,13 @@ def run_job(job: Job, cfg: dict, client) -> None:
     job.save(update_fields=["status"])
     p = job.parameters or {}
     try:
-        if job.type == Job.Type.TRAIN:
+        if job.type == Job.Type.TRAIN and p.get("auto"):
+            from core.services import autolearn
+            state = autolearn.step(cfg, client, force=True)
+            if state["status"] != "learned":
+                raise JobError(state["message"])
+            job.message = state["message"]
+        elif job.type == Job.Type.TRAIN:
             m = train(cfg, client, p["start"], p["end"], p.get("label") or None, job.requested_by, job)
             job.message = f"Trained {m.label} on {m.baselines['nodes']} nodes."
         elif job.type == Job.Type.REPLAY:

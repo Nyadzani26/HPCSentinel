@@ -197,6 +197,45 @@ class ControlsTests(TestCase):
         self.assertEqual((cfg["detection"]["alert_threshold"], cfg["detection"]["persistence_windows"], cfg["prometheus"]["url"]),
                          (5.0, 2, "http://prom:9090"))
 
+    def test_a_sensitivity_choice_sets_the_numbers(self):
+        from core.models import PlatformSetting
+        self.client.force_login(self.admin)
+        base = {"action": "settings", "prometheus_url": "http://prom:9090"}
+        for choice, expected in (("relaxed", (4.0, 4)), ("balanced", (3.0, 3)), ("sensitive", (2.5, 2))):
+            # the typed numbers are ignored when a preset is chosen
+            self.client.post(reverse("controls"), {**base, "sensitivity": choice, "alert_threshold": "9", "persistence_windows": "9"})
+            got = (PlatformSetting.objects.get(key="alert_threshold").value, PlatformSetting.objects.get(key="persistence_windows").value)
+            self.assertEqual(got, expected, choice)
+        self.client.post(reverse("controls"), {**base, "sensitivity": "custom", "alert_threshold": "3.7", "persistence_windows": "5"})
+        self.assertEqual(PlatformSetting.objects.get(key="alert_threshold").value, 3.7)
+
+    def test_custom_sensitivity_still_needs_numbers(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("controls"), {"action": "settings", "prometheus_url": "http://prom:9090", "sensitivity": "custom"})
+        self.assertContains(response, "Enter a number")
+
+    def test_the_current_sensitivity_is_shown_as_selected(self):
+        self.client.force_login(self.admin)
+        self.client.post(reverse("controls"), {"action": "settings", "prometheus_url": "http://prom:9090", "sensitivity": "sensitive"})
+        page = self.client.get(reverse("controls")).content.decode()
+        self.assertRegex(page, r'value="sensitive"[^>]*checked|checked[^>]*value="sensitive"')
+
+    def test_learn_now_asks_the_worker_to_learn_automatically(self):
+        self.client.force_login(self.admin)
+        response = self.client.post(reverse("controls"), {"action": "learn_now"}, follow=True)
+        job = Job.objects.get()
+        self.assertEqual((job.type, job.status, job.parameters), ("TRAIN", "PENDING", {"auto": True}))
+        self.assertContains(response, "Learning started")
+
+    def test_the_learning_tab_explains_where_things_stand(self):
+        self.client.force_login(self.admin)
+        page = self.client.get(reverse("controls"))
+        self.assertContains(page, "has not looked at the data yet")
+        self.assertContains(page, "Learn again now")
+        # the manual tools are still there, but under Advanced and described as optional
+        self.assertContains(page, "Learn from a specific period")
+        self.assertContains(page, "Everything here is optional")
+
     def test_connection_test_reports_failure(self):  # FR-04
         from unittest import mock
         self.client.force_login(self.admin)

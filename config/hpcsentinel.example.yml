@@ -32,6 +32,10 @@ detection:
   feature_spans_minutes: [5, 15]    # rolling windows used as features; add 60 only with state_stability_minutes: 60
   state_stability_minutes: 15       # a node is scored only after its load state has been steady this long
   train_stride_minutes: 5           # spacing of the windows used for learning
+  learn_days: 14                    # the platform learns from the reliable data of the last this many days, by itself
+  learn_min_hours: 6                # clean data needed per node before the first automatic learning
+  learn_min_interval_hours: 6       # at least this long between automatic learning runs
+  self_clean: true                  # drop learning windows that are far outside normal before fitting (see docs)
   relearn_hours: 168                # re-learn baselines this often; 0 turns scheduled re-learning off (FR-17)
   relearn_days: 14                  # length of the rolling window of recent data used
   # Smallest change that matters, in each metric's own unit. A metric must move at least this much before the

@@ -1,14 +1,13 @@
 {% extends "base.html" %}
 {% load sentinel %}
-{% block title %}Settings and models · HPCSentinel{% endblock %}
+{% block title %}Settings · HPCSentinel{% endblock %}
 {% block content %}
-<div class="head"><div><h1>Settings and models</h1><p class="muted">Connect your data, teach the platform what normal looks like, and check how well it detects problems.</p></div></div>
+<div class="head"><div><h1>Settings</h1><p class="muted">Connect Prometheus once. The platform learns what normal looks like by itself and keeps learning as data arrives.</p></div></div>
 
 <div class="tabs" role="tablist" id="tabs">
-  <button role="tab" data-tab="source" aria-selected="true">Data and alerts</button>
-  <button role="tab" data-tab="models" aria-selected="false">Models</button>
-  <button role="tab" data-tab="testing" aria-selected="false">Testing</button>
-  <button role="tab" data-tab="excluded" aria-selected="false">Periods to ignore</button>
+  <button role="tab" data-tab="source" aria-selected="true">Settings</button>
+  <button role="tab" data-tab="models" aria-selected="false">Learning</button>
+  <button role="tab" data-tab="advanced" aria-selected="false">Advanced</button>
 </div>
 
 <div data-panel="source">
@@ -18,8 +17,18 @@
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="settings">
         {{ settings_form.non_field_errors }}
         <label for="id_prometheus_url">Prometheus address<span class="hint">Where the platform reads metrics. It only ever reads; it never changes anything.</span>{{ settings_form.prometheus_url }}{{ settings_form.prometheus_url.errors }}</label>
-        <label for="id_alert_threshold">Alert level<span class="hint">How unusual a node must be to count. Lower finds more problems but raises more false alarms. 3 is a good start.</span>{{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>
-        <label for="id_persistence_windows">Checks in a row before alerting<span class="hint">One check every two minutes. 3 means a node must stay unusual for about six minutes.</span>{{ settings_form.persistence_windows }}{{ settings_form.persistence_windows.errors }}</label>
+        <fieldset class="sens"><legend>Alert sensitivity<span class="hint">How readily the platform raises an alert. Start with Balanced; you can change it any time.</span></legend>
+          {% for r in settings_form.sensitivity %}{% if r.data.value != "custom" %}
+          <label class="opt"><span class="optin">{{ r.tag }}</span><span><strong>{{ r.choice_label }}</strong>
+            <span class="hint">{% if r.data.value == "relaxed" %}Only clear, lasting problems. Fewest false alarms; may be slower or miss small ones.{% elif r.data.value == "balanced" %}A node must stay clearly unusual for about 6 minutes. Recommended.{% else %}Reacts to smaller, shorter changes. Finds more, with more false alarms.{% endif %}</span></span></label>
+          {% endif %}{% endfor %}
+        </fieldset>
+        <details><summary>Fine-tune the numbers</summary>
+          <div class="hint" style="margin:.3rem 0 .6rem">Choosing a sensitivity above sets these for you. Edit them only for a custom setting, and tick Custom.</div>
+          {% for r in settings_form.sensitivity %}{% if r.data.value == "custom" %}<label class="opt"><span class="optin">{{ r.tag }}</span><span><strong>Use the numbers below</strong></span></label>{% endif %}{% endfor %}
+          <label for="id_alert_threshold">Alert level<span class="hint">How unusual a node must be to count (typically 2.5 to 4).</span>{{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>
+          <label for="id_persistence_windows">Checks in a row before alerting<span class="hint">One check every two minutes.</span>{{ settings_form.persistence_windows }}{{ settings_form.persistence_windows.errors }}</label>
+        </details>
         <div style="display:flex;gap:.6rem;flex-wrap:wrap">
           <button type="submit" class="btn">Save changes</button>
           <button type="submit" name="action" value="test_connection" class="btn secondary" formnovalidate>Test connection</button>
@@ -46,36 +55,52 @@
 <div data-panel="models" hidden>
   <div class="grid2">
     <div class="card">
-      <h2>Train a model</h2>
-      <p class="muted">Pick a period when the cluster was healthy. The platform learns what normal looks like for each node, separately when idle and when busy. Periods you ignore are left out. It also re-learns on its own every week.</p>
-      <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
-        {{ train_form.non_field_errors }}
-        <label for="id_start">From (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
-        <label for="id_end">To (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
-        <label for="id_label">Name<span class="hint">Optional, for example “after-upgrade”.</span>{{ train_form.label }}</label>
-        <button type="submit" class="btn">Train model</button>
-      </form>
+      <h2>Learning</h2>
+      {% if learning.model %}
+        <p><span class="pill normal">Learned</span> <strong>{{ learning.model.label }}</strong> is in use, learned {{ learning.model.trained_at|ago }}{% if learning.origin == "auto" %} automatically{% endif %}.</p>
+        {% for f in learning.facts %}<p class="muted">{{ f }}</p>{% endfor %}
+      {% elif learning.state.status == "collecting" or learning.progress is not None %}
+        <p><span class="pill review">Watching</span> <strong>Collecting clean data.</strong></p>
+        <p class="muted">{{ learning.state.message }}</p>
+        {% if learning.progress is not None %}<div class="bar" role="progressbar" aria-valuenow="{{ learning.progress }}" aria-valuemin="0" aria-valuemax="100"><span style="width:{{ learning.progress }}%"></span></div>{% endif %}
+      {% else %}
+        <p><span class="pill review">Starting</span> <strong>The platform has not looked at the data yet.</strong></p>
+        <p class="muted">The worker checks every 15 minutes. As soon as it has about {{ learning.min_hours|floatformat:"-1" }} hours of clean data per node it learns by itself.</p>
+      {% endif %}
+      {% if learning.state.checked_at %}<p class="muted small">Last checked: {{ learning.state.message }}</p>{% endif %}
+      <form method="post" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="learn_now"><button type="submit" class="btn secondary">Learn again now</button></form>
+      <p class="muted small" style="margin-top:.5rem">You never have to do this. The platform learns the first model by itself, learns again when enough new data has arrived, and refreshes weekly. Faults and stress tests are filtered out automatically.</p>
     </div>
     <div class="card">
-      <h2>Trained models</h2>
+      <h2>Models</h2>
       {% if models %}
-      <table><thead><tr><th>Name</th><th>Trained</th><th>Learned from</th></tr></thead><tbody>
-      {% for m in models %}<tr><td><strong>{{ m.label }}</strong><div class="muted small">{{ m.baselines.nodes }} nodes</div></td><td>{{ m.trained_at|ago }}</td><td class="small">{{ m.train_start|date:"j M" }} – {{ m.train_end|date:"j M Y" }}</td></tr>{% endfor %}
+      <table><thead><tr><th>Name</th><th>Learned</th><th>Data used</th></tr></thead><tbody>
+      {% for m in models %}<tr><td><strong>{{ m.label }}</strong><div class="muted small">{% if m.baselines.origin == "auto" %}Automatic{% else %}Manual{% endif %} · {{ m.baselines.nodes }} nodes</div></td><td>{{ m.trained_at|ago }}</td><td class="small">{{ m.train_start|date:"j M H:i" }} – {{ m.train_end|date:"j M H:i" }}</td></tr>{% endfor %}
       </tbody></table>
-      <p class="muted small" style="margin-top:.6rem">The newest model is the one in use.</p>
-      {% else %}<div class="empty"><strong>No model yet</strong>Train one to start monitoring.</div>{% endif %}
+      <p class="muted small" style="margin-top:.6rem">The newest model is the one in use. Earlier ones are kept so any alert can be traced to the model that raised it.</p>
+      {% else %}<div class="empty"><strong>No model yet</strong>Learning starts by itself once there is enough data.</div>{% endif %}
     </div>
   </div>
-  <section><h2>Background jobs</h2>
+  <section><h2>Recent activity</h2>
   <div class="card flush"><table>
     <thead><tr><th>Job</th><th>Status</th><th>Requested</th><th>Result</th></tr></thead>
     <tbody>{% for j in jobs %}<tr><td>{{ j.get_type_display }}</td><td><span class="pill {{ j.status }}">{{ j.get_status_display }}</span></td><td>{{ j.requested_at|ago }}</td><td>{{ j.message|default:"–" }}</td></tr>
     {% empty %}<tr><td colspan="4" class="muted">Nothing has been requested yet.</td></tr>{% endfor %}</tbody>
-  </table></div>
-  <p class="muted small" style="margin-top:.5rem">Jobs run in the background; this list updates by itself while one is running.</p></section>
+  </table></div></section>
 </div>
 
-<div data-panel="testing" hidden>
+<div data-panel="advanced" hidden>
+  <p class="muted" style="max-width:48rem">Everything here is optional. The platform works without it. These tools are for validating the detector against faults you caused on purpose, and for marking maintenance.</p>
+  <details class="adv"><summary>Learn from a specific period</summary>
+    <p class="muted" style="max-width:48rem">Normally the platform chooses its own learning data. Use this only to learn from a period you know was healthy, for example to reproduce a result for a report.</p>
+    <div class="card" style="max-width:30rem"><form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
+      {{ train_form.non_field_errors }}
+      <label for="id_start">From (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
+      <label for="id_end">To (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
+      <label for="id_label">Name<span class="hint">Optional.</span>{{ train_form.label }}</label>
+      <button type="submit" class="btn">Learn from this period</button></form></div>
+  </details>
+  <details class="adv"><summary>Validate the detector (replay and evaluate)</summary>
   <p class="muted" style="max-width:48rem">To find out how well detection works, replay a past period through the same code that watches the cluster live, then compare the alerts it raises with the problems you caused on purpose. Use a period the model was not trained on.</p>
   <div class="grid2">
     <div class="card"><h2>1. Replay a period</h2>
@@ -107,9 +132,9 @@
       <td class="num">{% if e.median_delay_seconds is None %}–{% else %}{{ e.median_delay_seconds|floatformat:0 }} s{% endif %}</td><td class="num">{{ e.false_alerts_per_node_week|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="5" class="muted">No evaluation yet.</td></tr>{% endfor %}</tbody>
   </table></div></section>
-</div>
 
-<div data-panel="excluded" hidden>
+  </details>
+  <details class="adv"><summary>Maintenance and periods to ignore</summary>
   <p class="muted" style="max-width:48rem">Benchmarks, stress tests and maintenance make nodes look unusual on purpose. Mark those times and the platform will not learn from them.</p>
   <div class="grid2">
     <div class="card"><h2>Ignore a period</h2>
@@ -125,6 +150,8 @@
         <td style="text-align:right"><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="btn secondary small" type="submit">Remove</button></form></td></tr>{% endfor %}
       </tbody></table>{% else %}<div class="empty"><strong>None yet</strong>Add a period before you run stress tests.</div>{% endif %}</div>
   </div>
+
+  </details>
 </div>
 
 <script>
@@ -136,6 +163,12 @@
     try { history.replaceState(null, '', '#' + name); } catch (e) {}
   }
   tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); }); });
+  // Typing a number means "custom", so the preset above never silently overrides it.
+  var custom = document.querySelector('input[name="sensitivity"][value="custom"]');
+  ['id_alert_threshold', 'id_persistence_windows'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el && custom) el.addEventListener('input', function () { custom.checked = true; });
+  });
   var want = '{{ active_tab }}', hash = location.hash.slice(1);
   show(want !== 'source' ? want : (document.querySelector('[data-tab="' + hash + '"]') ? hash : 'source'));
   {% if autorefresh %}setTimeout(function () { if (!document.querySelector('input:focus, textarea:focus, select:focus')) location.reload(); }, 8000);{% endif %}

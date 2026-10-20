@@ -22,6 +22,7 @@ from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPe
 from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
 from core.services import settings_store
+from core.services import autolearn
 from core.services.review import PermissionDenied, ReviewService
 
 STALE_AFTER = timedelta(minutes=10)
@@ -81,8 +82,8 @@ def home(request):
     setup = [
         {"done": bool(last_cycle and last_cycle.source_reachable), "title": "Connect to Prometheus",
          "text": "Set the address of your Prometheus server and test it.", "url": "controls", "action": "Open settings"},
-        {"done": model is not None, "title": "Train the first model",
-         "text": "Learn what normal looks like from a period when the cluster was healthy.", "url": "controls", "action": "Train a model"},
+        {"done": model is not None, "title": "Learning what normal looks like",
+         "text": _learning_blurb(model), "url": "controls", "action": "See progress"},
         {"done": source_ok and model is not None, "title": "Monitoring runs by itself",
          "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
     ]
@@ -91,6 +92,14 @@ def home(request):
         "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
         "total": len(tiles),
     })
+
+
+def _learning_blurb(model):
+    """One plain sentence about learning for the home page checklist."""
+    if model is not None:
+        return f"Learned automatically ({model.label}). It keeps learning as more data arrives."
+    state = autolearn.last_state()
+    return state.get("message") or "The platform learns by itself once it has watched the cluster for a few hours. Nothing to do."
 
 
 def _baseline_lookup(node, state):
@@ -255,9 +264,9 @@ def alert_note(request, pk):
 
 
 # ---- controls (Administrator only) ---------------------------------------------------------
-def _queue(request, job_type, form, params):
+def _queue(request, job_type, form, params, message=None):
     job = Job.objects.create(type=job_type, parameters=params, requested_by=request.user)
-    messages.success(request, f"{job.get_type_display()} requested (job {job.pk}). The worker will start it shortly.")
+    messages.success(request, message or f"{job.get_type_display()} requested (job {job.pk}). The worker will start it shortly.")
 
 
 @administrator_required
@@ -279,7 +288,8 @@ def controls(request):
     cfg = settings_store.effective_config(base_cfg)
     forms_["settings"] = forms.SettingsForm(initial={
         "prometheus_url": cfg["prometheus"]["url"], "alert_threshold": cfg["detection"]["alert_threshold"],
-        "persistence_windows": cfg["detection"]["persistence_windows"]})
+        "persistence_windows": cfg["detection"]["persistence_windows"],
+        "sensitivity": forms.sensitivity_of(cfg["detection"]["alert_threshold"], cfg["detection"]["persistence_windows"])})
     readiness = None
     if request.method == "POST":
         action = request.POST.get("action")
@@ -314,6 +324,10 @@ def controls(request):
                 d = form.cleaned_data
                 _queue(request, Job.Type.TRAIN, form, {"start": d["start"].isoformat(), "end": d["end"].isoformat(), "label": d["label"]})
                 return redirect("controls")
+        elif action == "learn_now":
+            _queue(request, Job.Type.TRAIN, None, {"auto": True},
+                   "Learning started. The worker will look at the latest data and update the model within a minute.")
+            return redirect("controls")
         elif action in ("replay", "evaluate"):
             prefix = "replay" if action == "replay" else "eval"
             form = forms_[action] = forms.ModelPeriodForm(request.POST, prefix=prefix)
@@ -342,21 +356,49 @@ def controls(request):
                     messages.error(request, "The file must be a UTF-8 text (CSV) file.")
                 except JobError as exc:
                     messages.error(request, str(exc))
-        elif action not in ("settings", "test_connection", "readiness"):
+        elif action not in ("settings", "test_connection", "readiness", "learn_now"):
             raise Http404
     return render(request, "controls.html", {
         "readiness": readiness,
         **{f"{k}_form": v for k, v in forms_.items()},
         "jobs": Job.objects.order_by("-requested_at")[:10],
         "autorefresh": request.method == "GET" and Job.objects.filter(status__in=["PENDING", "RUNNING"]).exists(),
-        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "train": "models",
-                       "replay": "testing", "evaluate": "testing", "upload": "testing", "excluded": "excluded"}
-                      .get(request.POST.get("action"), "source"),
+        "learning": _learning(cfg),
+        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "learn_now": "models",
+                       "train": "advanced", "replay": "advanced", "evaluate": "advanced", "upload": "advanced",
+                       "excluded": "advanced"}.get(request.POST.get("action"), "source"),
         "models": ModelVersion.objects.order_by("-trained_at")[:10],
         "evaluations": EvaluationRun.objects.select_related("model").order_by("-pk")[:10],
         "periods": ExcludedPeriod.objects.order_by("-start_at")[:10],
         "experiments": ExperimentEntry.objects.select_related("node").order_by("-start_at")[:10],
     })
+
+
+def _learning(cfg):
+    """What the platform has learned, and how far it has got, in terms an administrator can read."""
+    state = autolearn.last_state()
+    model = ModelVersion.objects.order_by("-trained_at").first()
+    min_hours = float(cfg["detection"].get("learn_min_hours", 6))
+    cov = ((model.baselines or {}).get("coverage") if model else None) or state.get("coverage") or {}
+    nodes = Node.objects.filter(is_active=True).count()
+    facts = []
+    if model and cov:
+        facts.append(f"Learned from {cov.get('hours_per_node', 0):g} hours of clean data per node on {cov.get('nodes', 0)} nodes.")
+        idle, busy = cov.get("nodes_own_idle", 0), cov.get("nodes_own_loaded", 0)
+        total = cov.get("nodes", nodes)
+        facts.append(f"{idle} of {total} nodes have their own idle baseline; {busy} of {total} have their own busy baseline. "
+                     f"The rest are compared with their group until they have enough data of their own.")
+        if cov.get("trimmed_rows"):
+            pct = 100 * cov["trimmed_rows"] / max(1, cov["rows"] + cov["trimmed_rows"])
+            facts.append(f"{cov['trimmed_rows']} unusual windows ({pct:.1f}%) were left out of the learning automatically, "
+                         f"so faults and stress tests do not become 'normal'.")
+        if not cov.get("rows_loaded"):
+            facts.append("No busy periods have been seen yet, so busy nodes are not scored until they have been.")
+    progress = None
+    if model is None and cov.get("hours_per_node") is not None:
+        progress = min(100, round(100 * cov["hours_per_node"] / min_hours))
+    return {"model": model, "state": state, "facts": facts, "progress": progress, "min_hours": min_hours,
+            "coverage": cov, "origin": ((model.baselines or {}).get("origin") if model else None)}
 
 
 @administrator_required

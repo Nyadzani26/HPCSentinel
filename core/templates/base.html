@@ -142,6 +142,19 @@
     .timeline li { padding:.5rem 0 .5rem 1rem; border-left:2px solid var(--line); margin-left:.3rem; position:relative; }
     .timeline li::before { content:""; position:absolute; left:-.4rem; top:.85rem; width:.65rem; height:.65rem; border-radius:50%; background:var(--accent); }
     details > summary { cursor:pointer; font-weight:600; padding:.2rem 0; }
+    details.adv { margin:0 0 1rem; border:1px solid var(--line); border-radius:10px; padding:.55rem .9rem; background:var(--surface); }
+    details.adv[open] { padding-bottom:1rem; }
+    details.adv > summary { font-size:1.02rem; }
+    fieldset.sens { border:0; padding:0; margin:1.1rem 0 .8rem; display:grid; gap:.5rem; }
+    fieldset.sens legend { font-weight:600; padding:0; margin-bottom:.4rem; }
+    label.opt { display:flex; gap:.7rem; align-items:flex-start; padding:.6rem .8rem; border:1px solid var(--line); border-radius:8px; cursor:pointer; font-weight:400; }
+    label.opt:hover { border-color:var(--accent); }
+    label.opt:has(input:checked) { border-color:var(--accent); background:var(--accent-soft, color-mix(in srgb, var(--accent) 10%, transparent)); }
+    label.opt .optin { padding-top:.15rem; } label.opt input { width:auto; margin:0; }
+    label.opt .hint { display:block; font-weight:400; }
+    .bar { height:.6rem; border-radius:4px; background:var(--idle-soft); overflow:hidden; margin:.5rem 0; }
+    .bar span { display:block; height:100%; background:var(--accent); border-radius:4px; }
+    .small { font-size:.85rem; }
     .charts { display:grid; grid-template-columns:repeat(auto-fill, minmax(19rem, 1fr)); gap:.8rem; }
     .chart { position:relative; } .chart svg { display:block; width:100%; height:auto; overflow:visible; }
     .chart .title { display:flex; justify-content:space-between; gap:.5rem; align-items:baseline; margin-bottom:.2rem; }
@@ -173,7 +186,7 @@
       <a href="{% url 'home' %}" {% if request.resolver_match.url_name == 'home' or request.resolver_match.url_name == 'node_detail' %}aria-current="page"{% endif %}>Overview</a>
       <a href="{% url 'alert_list' %}" {% if 'alert' in request.resolver_match.url_name %}aria-current="page"{% endif %}>Alerts{% if nav_alert_count %}<span class="badge" aria-label="{{ nav_alert_count }} need attention">{{ nav_alert_count }}</span>{% endif %}</a>
       {% if user.is_administrator %}
-      <a href="{% url 'controls' %}" {% if request.resolver_match.url_name == 'controls' %}aria-current="page"{% endif %}>Settings and models</a>
+      <a href="{% url 'controls' %}" {% if request.resolver_match.url_name == 'controls' %}aria-current="page"{% endif %}>Settings</a>
       <a href="{% url 'users' %}" {% if request.resolver_match.url_name == 'users' %}aria-current="page"{% endif %}>Users</a>
       {% endif %}
     </nav>

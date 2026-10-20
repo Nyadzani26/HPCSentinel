@@ -46,7 +46,8 @@ class UsabilityTests(TestCase):
         self.client.force_login(make_user("boss", role="ADMINISTRATOR"))
         html = self.client.get(reverse("home")).content.decode()
         self.assertIn("Get started", html)
-        self.assertIn("Train the first model", html)
+        self.assertIn("Learning what normal looks like", html)
+        self.assertNotIn("Train the first model", html)  # nobody is asked to train by hand
 
     def test_first_run_tells_an_operator_to_ask_an_administrator(self):
         self.client.force_login(make_user("op"))

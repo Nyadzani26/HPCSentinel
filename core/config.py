@@ -59,6 +59,13 @@ def validate(cfg: dict) -> dict:
         raise ConfigError("'state_stability_minutes' in detection must be a whole number at least as long as the longest "
                           "feature span, otherwise scored windows would mix idle and loaded behaviour.")
 
+    for key, low in (("learn_days", 1), ("learn_min_interval_hours", 0), ("learn_min_hours", 1)):
+        value = det.get(key, {"learn_days": 14, "learn_min_interval_hours": 0, "learn_min_hours": 6}[key])
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < low:
+            raise ConfigError(f"'{key}' in detection must be a number, at least {low}.")
+    if not isinstance(det.get("self_clean", True), bool):
+        raise ConfigError("'self_clean' in detection must be true or false.")
+
     effects = det.get("min_effect", {})
     if not isinstance(effects, dict) or not all(isinstance(k, str) and isinstance(v, (int, float)) and not isinstance(v, bool)
                                                  and v >= 0 for k, v in effects.items()):

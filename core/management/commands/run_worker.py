@@ -7,7 +7,8 @@ from django.core.management.base import BaseCommand, CommandError
 
 from core.config import ConfigError, load_config
 from core.pipeline.cycle import DetectionCycle
-from core.pipeline.jobs import JobError, process_pending, relearn
+from core.pipeline.jobs import JobError, process_pending
+from core.services import autolearn
 from core.services.prometheus import PrometheusError
 from core.services.settings_store import effective_config, make_client
 
@@ -36,15 +37,17 @@ class Worker:
         cfg, client = self.current()
         return process_pending(cfg, client)
 
-    def relearn(self):
+    def learn(self):
+        """Zero-touch learning: decide whether to learn now (first model, better coverage, or weekly refresh)."""
         cfg, client = self.current()
         try:
-            model = relearn(cfg, client)
-            log.info("Scheduled re-learning produced %s.", model.label)
+            state = autolearn.step(cfg, client)
+            if state.get("status") == "learned":
+                log.info("Auto-learning: %s", state["message"])
         except (JobError, PrometheusError) as exc:
-            log.warning("Scheduled re-learning skipped: %s", exc)
+            log.warning("Auto-learning skipped: %s", exc)
         except Exception:  # noqa: BLE001 - never stop the worker
-            log.exception("Scheduled re-learning failed.")
+            log.exception("Auto-learning failed.")
 
 
 class Command(BaseCommand):
@@ -65,6 +68,7 @@ class Command(BaseCommand):
         if options["once"]:
             worker.jobs()
             worker.tick()
+            worker.learn()
             return
 
         scheduler = BlockingScheduler(timezone="UTC")
@@ -72,11 +76,11 @@ class Command(BaseCommand):
         scheduler.add_job(worker.tick, "interval", seconds=interval, max_instances=1, coalesce=True)
         # Requests made in the web application (train, replay, evaluate) are picked up here (D-3).
         scheduler.add_job(worker.jobs, "interval", seconds=10, max_instances=1, coalesce=True)
-        hours = int(cfg["detection"].get("relearn_hours", 168))
-        if hours > 0:
-            scheduler.add_job(worker.relearn, "interval", hours=hours, max_instances=1, coalesce=True)
+        # The platform decides for itself when to learn; no administrator action is needed (see services/autolearn).
+        scheduler.add_job(worker.learn, "interval", minutes=15, max_instances=1, coalesce=True)
         log.info("Worker started; one cycle every %s seconds against %s.", interval, cfg["prometheus"]["url"])
         worker.tick()  # first cycle immediately
+        worker.learn()  # and a first look at whether there is enough data to learn from
         try:
             scheduler.start()
         except (KeyboardInterrupt, SystemExit):
