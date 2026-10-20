@@ -1,11 +1,11 @@
 # Requirements status
 
-"Done" means implemented and covered by an automated test (`python manage.py test`, 103 tests).
+"Done" means implemented and covered by an automated test (`python manage.py test`, 208 tests).
 "Pending evidence" means implemented, but its verification needs a run on a real cluster
 (timings, browsers, a clean-host install) that has not been done yet. Anything marked Included in
 the report that is not "Done" or "Pending evidence" must be reported in report Section 3.4.
 
-## Functional requirements (all 30 Included requirements)
+## Functional requirements (all 33 Included requirements)
 
 | ID | Requirement (short) | Status | Where | Tests |
 |---|---|---|---|---|
@@ -39,6 +39,9 @@ the report that is not "Done" or "Pending evidence" must be reported in report S
 | FR-28 | Replay through the pipeline in time order | Done | `jobs.replay` | `PipelineTests` |
 | FR-29 | Import the experiment log | Done | `jobs.import_experiments`, controls page | `ExperimentImportTests`, `test_experiment_upload` |
 | FR-30 | Evaluation report (detection rate, delay, false alerts) | Done | `jobs.evaluate`, controls page | `test_evaluation_reports_event_level_metrics` |
+| FR-39 | End an alert by itself when the node is normal again or has stopped reporting; continue the same alert, counting a recurrence, if it returns within the merge period | Done | `engine.AlertManager.settle`, `Alert.resolve`, `Alert.flare_up` | `AlertLifecycleTests`, `TriageTests` |
+| FR-40 | Write daily, weekly and monthly reports by itself, save each as it stood, allow download | Done | `services/reports.py`, `Report`, `run_worker.Worker.reports` | `test_reports` (`PeriodTests`, `BuildTests`, `GenerationTests`, `ReportScreenTests`, `WorkerReportTests`) |
+| FR-41 | Record one cluster-wide event, not one alert per node, when many nodes become abnormal in the same cycle | Done (thresholds not tuned: one real example so far) | `services/events.py`, `ClusterEvent`, `engine.apply_alert_rules` | `test_events` (`EventRuleTests`, `ClusterCycleTests`, `EventScreenTests`, `EventReportTests`) |
 
 ## Changes made after the first deployment on Ranger
 
@@ -73,7 +76,7 @@ Every change is recorded here so the report can state it as a deliberate deviati
 | NFR-10 Configurability | Done | Metrics, mapping and detector settings from configuration; `test_config` |
 | NFR-11 Reproducibility | Done | Fixed seeds; `test_two_replays_of_the_same_period_give_the_same_alerts` |
 | NFR-12 Compatibility | Pending evidence | Browser check to be recorded |
-| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 103 tests |
+| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 208 tests |
 
 ## Known limitations
 
