@@ -155,6 +155,23 @@ class PipelineTests(TestCase):
         self.assertTrue(runs[0])
         self.assertEqual(runs[0], runs[1])
 
+    def test_a_replay_can_clear_old_replay_alerts_that_carry_audit_notes(self):
+        from core.models import AlertAction
+        from core.services.config_store import ensure_config_version, get_system_user
+        model = self.trained()
+        day3 = T0 + timedelta(days=2)
+        node = Node.objects.get(name="compute01")
+
+        def alert(mode):
+            return Alert.objects.create(node=node, mode=mode, status=Alert.Status.RESOLVED, opened_at=day3, peak_score=5,
+                                        explanation={}, model=model, config=ensure_config_version(self.cfg))
+        old_replay, live = alert(Alert.Mode.REPLAY), alert(Alert.Mode.LIVE)
+        for a in (old_replay, live):
+            AlertAction.objects.create(alert=a, user=get_system_user(), action=AlertAction.Action.RECOVER, note="ended")
+        jobs.replay(self.cfg, self.prom, model, day3 + timedelta(hours=9), day3 + timedelta(hours=10), stride_minutes=2)
+        self.assertFalse(Alert.objects.filter(pk=old_replay.pk).exists())
+        self.assertEqual(list(AlertAction.objects.values_list("alert_id", flat=True)), [live.pk])  # the live audit trail is kept
+
     def test_scheduled_relearning_builds_a_new_model_from_recent_data(self):  # FR-17
         cfg = config(relearn_days=1)
         now = T0 + timedelta(days=3)

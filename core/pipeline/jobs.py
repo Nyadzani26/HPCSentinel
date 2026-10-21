@@ -14,8 +14,8 @@ import pandas as pd
 from django.conf import settings
 from django.utils import timezone
 
-from core.models import (Alert, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, Job, ModelVersion, Node,
-                         NodeWindow, User)
+from core.models import (Alert, AlertAction, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, Job, ModelVersion,
+                         Node, NodeWindow, User)
 from core.pipeline import features as feat
 from core.pipeline.detector import Detector
 from core.pipeline.engine import AlertManager, DEFAULT_GROUP, record_window, row_to_entry, score_rows
@@ -176,7 +176,10 @@ def relearn(cfg: dict, client, now=None) -> ModelVersion:
 
 
 def _clear_replay():
+    """Remove the results of the previous replay. Only replay data goes: live alerts and their audit trail stay."""
     NodeWindow.objects.filter(cycle__mode=CycleRun.Mode.REPLAY).delete()
+    # An earlier version wrote its "recovered" notes on replay alerts too; those notes would block deleting the alerts.
+    AlertAction.objects.filter(alert__mode=Alert.Mode.REPLAY).delete()
     Alert.objects.filter(mode=Alert.Mode.REPLAY).delete()
     CycleRun.objects.filter(mode=CycleRun.Mode.REPLAY).delete()
 
