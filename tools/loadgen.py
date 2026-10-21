@@ -149,7 +149,7 @@ PROFILES = {
     #            cores  cpu duty  memory share  io duty  net duty
     "cpu":      (1.00, 0.90, 0.10, 0.00, 0.00),
     "memory":   (0.50, 0.35, 0.40, 0.00, 0.00),
-    "io":       (0.25, 0.30, 0.10, 0.60, 0.00),
+    "io":       (0.50, 0.40, 0.10, 0.60, 0.00),   # processor use must stay above the idle threshold, or its nodes read as idle
     "comm":     (0.50, 0.40, 0.10, 0.00, 0.60),
     "mixed":    (0.75, 0.60, 0.20, 0.20, 0.00),
 }

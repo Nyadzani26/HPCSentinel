@@ -1,10 +1,12 @@
 #!/bin/bash
 # Schedules the validation faults and a background healthy load, all through Slurm.
 #
-# Usage: tools/run_faults.sh HH:MM        (today, local time of the cluster; the first fault starts 10 minutes later)
+# Usage: tools/run_faults.sh HH:MM        (today, local time of the cluster; the first fault starts 25 minutes later)
 #
 # Background: compute25-48 run a normal job for the whole evaluation window, so faults are tested
-# on both idle nodes (compute01-24) and loaded nodes (compute25-48). Faults last 15 minutes.
+# on both idle nodes (compute01-24) and loaded nodes (compute25-48). Faults last 15 minutes. The first fault
+# starts 25 minutes after the background load, because a node whose load state has just changed is not scored
+# for 15 minutes (the stability rule), and a fault on it would be missed for that reason.
 # Each fault is a separate Slurm job that logs its real start and end to the CSV printed at the end.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,15 +43,15 @@ bg C "compute[25-36]"
 bg D "compute[37-48]"
 echo "background load on compute25-48 from $T0"
 
-single 10  MEMORY  compute03     # idle node
-single 10  MEMORY  compute30     # loaded node
-pair   40  compute06 compute07   # idle pair (compute08 is down on Ranger; pick two nodes that sinfo shows idle)
-pair   40  compute33 compute34   # loaded pair
-single 70  IO      compute12     # idle node
-single 70  IO      compute40     # loaded node
-single 100 MEMORY  compute18     # idle node
-single 100 MEMORY  compute45     # loaded node
+single 25  MEMORY  compute03     # idle node
+single 25  MEMORY  compute30     # loaded node
+pair   45  compute06 compute07   # idle pair (compute08 is down on Ranger; pick two nodes that sinfo shows idle)
+pair   45  compute33 compute34   # loaded pair
+single 65  IO      compute12     # idle node
+single 65  IO      compute40     # loaded node
+single 85  MEMORY  compute18     # idle node
+single 85  MEMORY  compute45     # loaded node
 
 echo
 echo "All faults scheduled. Experiment log: $LOG"
-echo "Last fault ends about $(at 120). Check with: squeue -u $USER"
+echo "Last fault ends about $(at 100). Check with: squeue -u $USER"

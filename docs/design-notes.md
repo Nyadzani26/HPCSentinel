@@ -20,18 +20,19 @@ example 60 minutes) remain available by setting both values to 60.
 
 On the first live day on Ranger, the input/output-oriented baseline job (profile `io`) left the processor at about
 6.5%, under the default 10% idle threshold. Judged on CPU alone its nodes were classed IDLE, looked unusual beside the
-idle baseline (scores of 3.6 to 7) and joined a cluster-wide event. They would also have contaminated the idle
-baseline and the idle forest, making a later fault harder to see.
+idle baseline (scores of 3.6 to 7) and joined a cluster-wide event.
 
-The first idea was to count a busy disk as busy as well. That was tried and dropped. The job produced no disk traffic
-the platform can see: `disk_busy_ratio` stayed at 0.0% on the job's node for the whole run. What the job did change
-was small: CPU 6.1% (idle 0.0%), free memory 88.5% (98.4%), context switches 121/s (53/s), open files 704 (544).
-Counting disk traffic as busy would also have been harmful in a fault test, because a real disk fault would then turn
-the node LOADED, hold it unscored for the stability period and compare it with a baseline it does not have.
+Two remedies were tried and dropped. Counting a busy disk as busy could not work: the compute nodes have no disks (the
+root file system is NFS from the head node, `/tmp` is memory), and `disk_busy_ratio` stayed at 0.0% on the job's node for
+the whole run. Lowering the threshold to 4% classed the job correctly (idle nodes were seen at no more than 0.8% CPU),
+but it would have hidden the faults the platform is meant to find: a one-process fault such as the memory or I/O fault
+keeps one core busy, which is a few per cent of the node, so with a 4% line the node turns LOADED when the fault starts and
+is not scored for the stability period, which is as long as the fault.
 
-The remedy is a calibration, not new code. An idle node on Ranger was seen at no more than 0.8% CPU over an hour, so
-the Ranger configuration sets `load_idle_cpu_busy: 0.04`. Any value between about 1% and 6% separates the two. A job
-quieter than the threshold on CPU is still read as idle; telling it apart needs scheduler data (FR-33, deferred).
+The threshold therefore stays at the default 10%, and the cause is treated as a flaw of the test workload: the `io`
+profile was lighter than any real job and now uses enough processor to read as loaded. The limit that remains is
+inherent to a CPU-only load state: a one-core job, which is a few per cent of a node, is read as idle and scored against
+idle behaviour. Telling it apart from a fault needs scheduler data (FR-33, deferred).
 
 ## Cluster-wide shared-filesystem bursts
 

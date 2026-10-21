@@ -80,7 +80,7 @@ Every change is recorded here so the report can state it as a deliberate deviati
 
 ## Known limitations
 
-* A node is not scored for up to 15 minutes after its load state changes (a stability rule, 15 minutes by default, equal to the longest feature span), so a fault that begins exactly at a job start is detected later. Because load state comes from CPU use alone, a fault that itself drives CPU above 10% on an idle node (for example a CPU hog) looks like a legitimate job and cannot be told apart without scheduler data (FR-33, deferred). The same holds for a light job: on Ranger the idle threshold is 4% (idle nodes stay under 1%, the lightest test job runs at about 6.5%), and a job quieter than that is read as idle.
+* A node is not scored for up to 15 minutes after its load state changes (a stability rule, 15 minutes by default, equal to the longest feature span), so a fault that begins exactly at a job start is detected later. Because load state comes from CPU use alone, a fault that itself drives CPU above 10% on an idle node (for example a CPU hog) looks like a legitimate job and cannot be told apart without scheduler data (FR-33, deferred). The same holds for a light job: a one-core job is a few per cent of a node, below the 10% idle threshold, so it is read as idle. The threshold is not lowered because a one-process fault would then turn the node LOADED and go unscored (see `docs/design-notes.md`).
 * Load state comes from the node's own CPU use, not from the job scheduler (FR-33 deferred).
 * Hardware sensors are not used (FR-32 deferred). The platform sends no notifications (FR-31 deferred).
 * Assignment of nodes to groups is made in the Django administration site; one default group is used otherwise.
