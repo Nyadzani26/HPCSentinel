@@ -22,9 +22,13 @@ On the first live day on Ranger, the input/output-oriented baseline job (profile
 6.5%, under the default 10% idle threshold. Judged on CPU alone its nodes were classed IDLE, looked unusual beside the
 idle baseline (scores of 3.6 to 7) and joined a cluster-wide event.
 
-Two remedies were tried and dropped. Counting a busy disk as busy could not work: the compute nodes have no disks (the
-root file system is NFS from the head node, `/tmp` is memory), and `disk_busy_ratio` stayed at 0.0% on the job's node for
-the whole run. Lowering the threshold to 4% classed the job correctly (idle nodes were seen at no more than 0.8% CPU),
+Two remedies were tried and dropped. Counting a busy disk as busy could not work: the compute nodes have no disks (the root file system is NFS from the head
+node and is read-only, `/tmp` is memory), and `disk_busy_ratio` stayed at 0.0% on the job's node for the whole run. The
+job's file writes never took place at all: it wrote to `/var/tmp`, which is read-only on these nodes, and the writer died
+silently while the rest of the job carried on. The same mistake made the first two injected I/O faults run for zero seconds.
+The tools now write to a writable folder (the shared home folder for the I/O fault, memory for the baseline profile), stop
+with a clear message when they cannot write, and the fault script logs a fault only if it really ran.
+Lowering the threshold to 4% classed the job correctly (idle nodes were seen at no more than 0.8% CPU),
 but it would have hidden the faults the platform is meant to find: a one-process fault such as the memory or I/O fault
 keeps one core busy, which is a few per cent of the node, so with a 4% line the node turns LOADED when the fault starts and
 is not scored for the stability period, which is as long as the fault.
