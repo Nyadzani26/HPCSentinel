@@ -6,7 +6,7 @@ from django.urls import reverse
 
 from core.models import ClusterEvent, CycleRun, Node, NodeWindow
 from core.services.timeline import fleet_timeline
-from core.tests.helpers import make_config, make_user
+from core.tests.helpers import make_alert, make_config, make_node, make_user
 
 NOW = datetime(2026, 10, 21, 17, 20, tzinfo=tz.utc)      # inside the 17:15 to 17:30 column
 LEVEL = 3.0
@@ -94,3 +94,32 @@ class OverviewMapTests(TestCase):
     def test_the_headline_does_not_claim_normal_when_no_node_is_reporting(self):
         Node.objects.create(name="compute01", source_label="c1")
         self.assertContains(self.client.get(reverse("home")), "No node is reporting right now.")
+
+
+class OverviewPanelTests(TestCase):
+    """The side panel beside the map holds what needs a look, and is left out when there is nothing to show."""
+
+    def setUp(self):
+        self.client.force_login(make_user("viewer"))
+
+    def test_the_panel_is_hidden_when_nothing_needs_a_look(self):
+        make_node("compute01")
+        self.assertContains(self.client.get(reverse("home")), 'class="deck solo bare"')
+
+    def test_an_open_alert_fills_the_panel_with_a_link_to_it(self):
+        alert = make_alert()
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertNotIn("bare", page.split('class="deck')[1].split('"')[0])
+        self.assertIn("Needs attention", page)
+        self.assertIn(reverse("alert_detail", args=[alert.pk]), page)
+
+    def test_an_alert_page_opens_with_its_score_chart_only_when_it_has_readings(self):
+        alert = make_alert()
+        url = reverse("alert_detail", args=[alert.pk])
+        self.assertNotContains(self.client.get(url), "How unusual it was")
+        cycle = CycleRun.objects.create(mode="LIVE", started_at=datetime.now(tz.utc), source_reachable=True, config=make_config())
+        NodeWindow.objects.create(node=alert.node, cycle=cycle, window_end=cycle.started_at, quality="RELIABLE", load_state="IDLE",
+                                  combined_score=4.2, alert=alert)
+        page = self.client.get(url)
+        self.assertContains(page, "How unusual it was")
+        self.assertContains(page, 'id="score"')

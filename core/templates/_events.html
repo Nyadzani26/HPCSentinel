@@ -1,5 +1,5 @@
 {% load sentinel %}
-{% for e in events|still_going %}
+{% if part != "past" %}{% for e in events|still_going %}
 <div class="notice event live" role="status">
   <div>
     <strong>Cluster-wide event</strong> · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once and it is <strong>still going</strong>.
@@ -8,8 +8,8 @@
   </div>
   <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
 </div>
-{% endfor %}
-{% with past=events|ended %}{% if past %}
+{% endfor %}{% endif %}
+{% if part != "active" %}{% with past=events|ended %}{% if past %}
 <details class="past-events">
   <summary><span>{{ past|length }} cluster-wide event{{ past|length|pluralize }} in the last day</span> <span class="muted">Many nodes changing at once is shown as one event, not as one alert per node.</span></summary>
   <ul>
@@ -20,4 +20,4 @@
     {% endfor %}
   </ul>
 </details>
-{% endif %}{% endwith %}
+{% endif %}{% endwith %}{% endif %}

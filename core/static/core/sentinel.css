@@ -337,3 +337,26 @@ details.adv > summary { font:600 1.05rem var(--display); }
 }
 
 .ct { paint-order:stroke; stroke:var(--panel); stroke-width:4px; stroke-linejoin:round; }
+
+/* Overview deck: the history map on the left, what needs a look on the right (above the map on a narrow screen) */
+.deck { display:grid; grid-template-columns:minmax(0, 1fr) 23rem; gap:1.2rem 1.4rem; align-items:start; }
+.deck > .rail { grid-column:2; grid-row:1; position:sticky; top:4.6rem; display:grid; gap:1rem; }
+.deck > .deck-main { grid-column:1; grid-row:1; margin-top:0; min-width:0; }
+.deck.solo, .deck.bare { grid-template-columns:minmax(0, 1fr); }
+.deck.solo > .rail, .deck.bare > .rail { grid-column:1; position:static; }
+.deck.bare > .rail { display:none; }
+.rail > * { margin:0; }
+.rail section { margin-top:0; }
+.rail .notice { margin-bottom:0; }
+.rail .attn { gap:.6rem; }
+.rail .attn-card { display:block; padding:.85rem 1rem; }
+.rail .attn-card .act { display:flex; align-items:center; justify-content:space-between; gap:.8rem; margin-top:.7rem; }
+.rail .notice.event { display:block; }
+.rail .notice.event .btn { margin-top:.7rem; }
+.rail .notice.review { display:block; }
+.rail .notice.review .btn { margin-top:.6rem; }
+@media (max-width:64rem) {
+  .deck { grid-template-columns:minmax(0, 1fr); }
+  .deck > .rail, .deck > .deck-main { grid-column:1; position:static; }
+  .deck > .rail { grid-row:1; } .deck > .deck-main { grid-row:2; }
+}

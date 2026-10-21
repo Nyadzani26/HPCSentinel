@@ -230,6 +230,22 @@ collided with the top bar's class and collapsed the whole header to half a rem, 
 the empty part of the day, which made a half-day of data look like a mostly empty chart. Both were invisible in
 the tests.
 
+### Second pass: the map above the fold
+
+The first version put the notices and alert cards above the map, so on a 900 px screen the best part of the Overview
+was off the bottom. The Overview is now two columns: the map on the left and a side panel on the right with, in
+order of urgency, an event that is still going, the alerts that need attention, a one-line summary of past events, and
+the review reminder. On a narrow screen the panel moves above the map. When there is nothing to show the panel is
+left out and the map takes the full width.
+
+- The map rows are 10 px with 2 px between them, close to square cells, and the node names stay legible.
+- When most of the day has no data the map says "Nothing recorded before 13:45 UTC" instead of leaving a field of dots
+  unexplained.
+- On a phone the map shows the last 12 hours, not 24, because 96 columns become hairlines at 320 px, and a scrolled
+  canvas hides the node names.
+- The alert page now opens with a score card (highest score, and the score over the life of the alert against the
+  alert level). That chart used to sit unlabeled at the bottom of "Why this was flagged".
+
 ## Experiment log: intensity text
 
 `ExperimentEntry.intensity` was limited to 20 characters. SQLite, used in the tests, does not enforce that limit

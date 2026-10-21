@@ -10,7 +10,7 @@
   var data = JSON.parse(dataEl.textContent);
   var canvas = host.querySelector('canvas'), tip = host.querySelector('.watch-tip'), ctx = canvas.getContext('2d');
   var rows = data.rows, N = data.columns, step = data.step * 60000;
-  var LEFT = 78, RIGHT = 6, AXIS = 16, BAND = 9, TOP = AXIS + BAND + 10, ROW = 12, GAP = 3, GROUP = 22, MIN_W = 640;
+  var LEFT = 78, RIGHT = 6, AXIS = 16, BAND = 9, TOP = AXIS + BAND + 10, ROW = 10, GAP = 2, GROUP = 22, MIN_W = 300, FROM = 0;
   var groups = {}; rows.forEach(function (r) { groups[r.group] = true; });
   var grouped = Object.keys(groups).length > 1;
   var W = 0, H = 0, layout = [], colors = {}, hover = null, progress = 1, drawn = false;
@@ -28,6 +28,10 @@
   function measure() {
     var avail = host.clientWidth - 2 * 20;
     W = Math.max(MIN_W, avail);
+    // on a phone 96 columns would be hairlines: show the last 12 hours there, with the row labels still in view
+    FROM = host.clientWidth < 620 ? Math.floor(N / 2) : 0;
+    var title = document.getElementById('watch-h');
+    if (title) title.textContent = 'Last ' + Math.round((N - FROM) * data.step / 60) + ' hours';
     var y = TOP, last = null;
     layout = rows.map(function (r) {
       if (grouped && r.group !== last) { y += last === null ? 0 : 6; r._header = y; y += GROUP; }
@@ -40,19 +44,19 @@
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  function colW() { return (W - LEFT - RIGHT) / N; }
-  function colX(i) { return LEFT + i * colW(); }
+  function colW() { return (W - LEFT - RIGHT) / (N - FROM); }
+  function colX(i) { return LEFT + (i - FROM) * colW(); }
   function indexAt(ms) { return (ms - data.start) / step; }
 
   function draw() {
     ctx.clearRect(0, 0, W, H);
-    ctx.font = '11px "Public Sans", system-ui, sans-serif'; ctx.textBaseline = 'middle';
-    var cw = colW(), shown = Math.ceil(N * progress);
+    ctx.font = '10px "Public Sans", system-ui, sans-serif'; ctx.textBaseline = 'middle';
+    var cw = colW(), shown = FROM + Math.ceil((N - FROM) * progress);
     // time axis: a label every three hours, the date when a new day starts
     ctx.fillStyle = colors.muted; ctx.textAlign = 'left';
-    for (var i = 0; i < N; i++) {
+    for (var i = FROM; i < N; i++) {
       var t = data.start + i * step, d = new Date(t);
-      if (d.getUTCMinutes() === 0 && d.getUTCHours() % 3 === 0) {
+      if (d.getUTCMinutes() === 0 && d.getUTCHours() % 3 === 0 && colX(i) < W - RIGHT - 46) {    // leave room for "now"
         var label = d.getUTCHours() === 0 ? dayLabel(t) : clock(t);
         ctx.globalAlpha = 1; ctx.fillStyle = d.getUTCHours() === 0 ? colors.ink : colors.muted;
         ctx.fillText(label, colX(i), AXIS / 2);
@@ -62,7 +66,8 @@
     ctx.globalAlpha = 1; ctx.textAlign = 'right'; ctx.fillStyle = colors.muted; ctx.fillText('now', W - RIGHT, AXIS / 2);
     // cluster events along the top
     data.events.forEach(function (e) {
-      var a = Math.max(indexAt(e.s), 0), b = Math.min(e.e ? indexAt(e.e) : N, N);
+      var a = Math.max(indexAt(e.s), FROM), b = Math.min(e.e ? indexAt(e.e) : N, N);
+      if (b <= a) return;
       var x = colX(a), w = Math.max((b - a) * cw, 3);
       if (x > colX(shown)) return;
       ctx.globalAlpha = 1; ctx.fillStyle = colors.shared; ctx.fillRect(x, AXIS + 3, Math.min(w, colX(shown) - x), BAND);
@@ -73,12 +78,12 @@
       if (grouped && r._header !== undefined) {
         ctx.globalAlpha = 1; ctx.fillStyle = colors.muted; ctx.textAlign = 'left'; ctx.font = '600 11px "Public Sans", system-ui, sans-serif';
         ctx.fillText(r.group || 'Nodes', 0, r._header + GROUP / 2 + 1);
-        ctx.font = '11px "Public Sans", system-ui, sans-serif';
+        ctx.font = '10px "Public Sans", system-ui, sans-serif';
       }
       ctx.globalAlpha = 1; ctx.textAlign = 'right'; ctx.fillStyle = active ? colors.ink : colors.muted;
-      ctx.font = (active ? '650 ' : '') + '11px "Public Sans", system-ui, sans-serif';
+      ctx.font = (active ? '650 ' : '') + '10px "Public Sans", system-ui, sans-serif';
       ctx.fillText(r.node, LEFT - 8, y + ROW / 2 + .5);
-      for (var c = 0; c < shown; c++) {
+      for (var c = FROM; c < shown; c++) {
         var ch = r.cells.charAt(c);
         if (ch === '.') {                          // no data: a small dot, so the empty part still reads as a grid
           ctx.globalAlpha = .9; ctx.fillStyle = colors.rule;
@@ -89,6 +94,17 @@
         ctx.fillStyle = color; ctx.fillRect(colX(c), y, Math.max(cw - 1, 1), ROW);
       }
     });
+    // when most of the day is blank, say so instead of leaving a field of dots unexplained
+    var first = N;
+    rows.forEach(function (r) { for (var k = 0; k < r.cells.length; k++) { if (r.cells.charAt(k) !== '.') { if (k < first) first = k; break; } } });
+    if (first > FROM + 12 && first < N) {
+      ctx.globalAlpha = 1; ctx.textAlign = 'left'; ctx.font = '12px "Public Sans", system-ui, sans-serif'; ctx.fillStyle = colors.muted;
+      ctx.lineWidth = 6; ctx.strokeStyle = colors.panel; ctx.lineJoin = 'round';
+      var msg = 'Nothing recorded before ' + clock(data.start + first * step) + ' UTC';
+      var mx = LEFT + 8, my = grouped && rows[0]._header !== undefined ? rows[0]._header + GROUP / 2 + 1 : TOP + 8;
+      ctx.strokeText(msg, mx, my); ctx.fillText(msg, mx, my);
+      ctx.font = '10px "Public Sans", system-ui, sans-serif';
+    }
     // hover guides
     if (hover) {
       ctx.globalAlpha = .1; ctx.fillStyle = colors.ink; ctx.fillRect(colX(hover.col), TOP - 4, Math.max(cw - 1, 1), H - TOP);
@@ -107,12 +123,12 @@
   function locate(ev) {
     var box = canvas.getBoundingClientRect(), x = ev.clientX - box.left, y = ev.clientY - box.top;
     if (y >= AXIS && y < AXIS + BAND + 6) {
-      var idx = (x - LEFT) / colW(), found = null;
+      var idx = (x - LEFT) / colW() + FROM, found = null;
       data.events.forEach(function (e) { if (idx >= indexAt(e.s) - .3 && idx <= (e.e ? indexAt(e.e) : N) + .3) found = e; });
       return found ? { event: found } : null;
     }
-    var col = Math.floor((x - LEFT) / colW());
-    if (col < 0 || col >= N) return null;
+    var col = Math.floor((x - LEFT) / colW()) + FROM;
+    if (col < FROM || col >= N) return null;
     for (var i = 0; i < rows.length; i++) if (y >= layout[i].y - GAP / 2 && y < layout[i].y + ROW + GAP / 2) return { row: i, col: col };
     return null;
   }
@@ -140,7 +156,7 @@
     window.location.href = hit.event ? hit.event.url : rows[hit.row].url;
   });
 
-  function render() { readColors(); measure(); draw(); host.scrollLeft = host.scrollWidth; }   // on a narrow screen, start at "now"
+  function render() { readColors(); measure(); draw(); }
   var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   render();
   if (!reduce) {                                   // one reveal, left to right, when the page opens

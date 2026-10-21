@@ -18,6 +18,19 @@
   {% for s in steps %}<span class="{{ s.state }}">{{ s.label }}</span>{% if not forloop.last %}<i></i>{% endif %}{% endfor %}
 </div>
 
+{% if chart %}
+<div class="card" style="margin-top:1.3rem">
+  <div class="scorebox">
+    <div>
+      <div class="big">{{ alert.peak_score|floatformat:1 }}</div>
+      <div class="words unusual">{% if alert.is_active %}Highest so far{% else %}Highest score{% endif %}</div>
+      <p>An alert opens when the score stays above the alert level (the dashed line) for several checks in a row.</p>
+    </div>
+    <div><h2>How unusual it was</h2><div id="score"></div></div>
+  </div>
+</div>
+{% endif %}
+
 <div class="two" style="margin-top:1.3rem">
   <div>
     <div class="card">
@@ -44,7 +57,6 @@
       {% if history %}
       <p class="muted">{% if history.alerts_last_30_days %}In the last 30 days this node raised {{ history.alerts_last_30_days }} alert{{ history.alerts_last_30_days|pluralize }}: {{ history.confirmed_last_30_days }} confirmed as a real fault and {{ history.false_alarms_last_30_days }} closed as a false alarm.{% else %}This node has not raised an alert in the last 30 days.{% endif %}</p>
       {% endif %}
-      <div id="score"></div>
       {% if opening %}
       <details style="margin-top:.7rem"><summary>How it looked when the alert opened</summary>
         <table style="margin-top:.5rem"><thead><tr><th>Metric</th><th class="num">Then</th><th class="num">Normal</th><th>Change</th></tr></thead><tbody>
@@ -112,7 +124,8 @@
 <script>
 (function () {
   var J = function (id) { return JSON.parse(document.getElementById(id).textContent); };
-  Sentinel.line(document.getElementById('score'), J('score-data'), {h: 140, threshold: J('threshold'), floor: 0, label: 'Unusualness during the alert', tipLabel: 'Score '});
+  var host = document.getElementById('score');
+  if (host) Sentinel.line(host, J('score-data'), {h: 150, threshold: J('threshold'), floor: 0, label: 'Unusualness during the alert', tipLabel: 'Score '});
 })();
 </script>
 {% endblock %}

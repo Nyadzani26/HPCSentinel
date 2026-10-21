@@ -52,55 +52,59 @@
 </div>
 {% endif %}
 
-{% include "_events.html" %}
-{% if to_review %}
-<div class="notice" style="display:flex;gap:1rem;align-items:center;justify-content:space-between;flex-wrap:wrap">
-  <span><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</span>
-  <a class="btn small" href="{% url 'alert_list' %}?status=review">Review</a>
+<div class="deck{% if not watch %} solo{% endif %}{% if not attention and not events and not to_review %} bare{% endif %}">
+  <aside class="rail" aria-label="What needs a look">
+    {% include "_events.html" with part="active" %}
+    {% if attention %}
+    <section aria-labelledby="attn-h">
+      <h2 id="attn-h">Needs attention</h2>
+      <div class="attn">
+        {% for t in attention %}
+        <div class="card attn-card {{ t.css }}">
+          <div>
+            <h3>{% alert_headline t.alert %}</h3>
+            <div class="meta"><span>Opened {{ t.alert.opened_at|ago }}, still going</span><span>{{ t.window.load_state|default:"–"|lower }}</span></div>
+          </div>
+          <div class="act">
+            <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
+            <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Look{% else %}Open{% endif %}</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% include "_events.html" with part="past" %}
+    {% if to_review %}
+    <div class="notice review">
+      <span><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</span>
+      <a class="btn small" href="{% url 'alert_list' %}?status=review">Review</a>
+    </div>
+    {% endif %}
+  </aside>
+
+  {% if watch %}
+  <section class="deck-main" aria-labelledby="watch-h">
+    <div class="card watch">
+      <div class="watch-head">
+        <div><h2 id="watch-h">Last 24 hours</h2>
+          <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes (UTC). Click a node to open it.</p></div>
+        <ul class="legend" aria-label="Key">
+          <li><i class="k-n"></i>Normal</li><li><i class="k-u"></i>Unusual</li><li><i class="k-e"></i>Cluster event</li><li><i class="k-q"></i>Not scored</li><li><i class="k-x"></i>No data</li>
+        </ul>
+      </div>
+      <div class="watch-body" id="watch">
+        <canvas role="img" aria-label="The last 24 hours for every node. The node list below shows the current state of each node."></canvas>
+        <div class="watch-tip" role="tooltip"></div>
+      </div>
+    </div>
+  </section>
+  {{ watch|json_script:"watch-data" }}
+  <script src="{% static 'core/watch.js' %}" defer></script>
+  {% endif %}
 </div>
-{% endif %}
 
-{% if attention %}
-<section aria-labelledby="attn-h" style="margin-top:0">
-  <h2 id="attn-h">Needs attention</h2>
-  <div class="attn">
-    {% for t in attention %}
-    <div class="card attn-card {{ t.css }}">
-      <div>
-        <h3>{% alert_headline t.alert %}</h3>
-        <div class="meta"><span>Opened {{ t.alert.opened_at|ago }}</span><span>still going, {{ t.alert.lasted|span }} so far</span><span>{{ t.window.load_state|default:"–"|lower }}</span></div>
-      </div>
-      <div style="display:flex;gap:.8rem;align-items:center">
-        <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
-        <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Look{% else %}Open{% endif %}</a>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-</section>
-{% endif %}
-
-{% if watch %}
-<section aria-labelledby="watch-h" {% if not attention %}style="margin-top:0"{% endif %}>
-  <div class="card watch">
-    <div class="watch-head">
-      <div><h2 id="watch-h">Last 24 hours</h2>
-        <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes (UTC). Click a node to open it.</p></div>
-      <ul class="legend" aria-label="Key">
-        <li><i class="k-n"></i>Normal</li><li><i class="k-u"></i>Unusual</li><li><i class="k-e"></i>Cluster event</li><li><i class="k-q"></i>Not scored</li><li><i class="k-x"></i>No data</li>
-      </ul>
-    </div>
-    <div class="watch-body" id="watch">
-      <canvas role="img" aria-label="The last 24 hours for every node. The node list below shows the current state of each node."></canvas>
-      <div class="watch-tip" role="tooltip"></div>
-    </div>
-  </div>
-</section>
-{{ watch|json_script:"watch-data" }}
-<script src="{% static 'core/watch.js' %}" defer></script>
-{% endif %}
-
-<section aria-labelledby="nodes-h" {% if not attention and not watch %}style="margin-top:0"{% endif %}>
+<section aria-labelledby="nodes-h">
   <h2 id="nodes-h">All nodes</h2>
   {% if tiles %}
   <div class="toolbar">
