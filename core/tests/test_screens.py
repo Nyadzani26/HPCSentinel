@@ -92,6 +92,15 @@ class TriageTests(TestCase):
     def test_detail_shows_the_explanation(self):  # FR-19, FR-22
         self.assertContains(self.client.get(reverse("alert_detail", args=[self.alert.pk])), "What changed")
 
+    def test_a_swinging_metric_is_not_described_as_a_rise_in_the_metric(self):  # FR-19
+        self.alert.explanation = {"summary": "test", "contributors": [
+            {"metric": "mem_available_ratio", "feature": "mem_available_ratio__std_15", "compared_with": "own baseline",
+             "observed": 0.2, "expected": 0.00002, "z": 9.0}]}
+        self.alert.save()
+        page = self.client.get(reverse("alert_detail", args=[self.alert.pk])).content.decode()
+        self.assertIn("available memory variation 10,000× higher than normal", page)
+        self.assertIn("Available memory (variation)", page)
+
     def test_full_triage_flow_records_who_and_when(self):  # FR-24..FR-27, BR-11
         self.post("alert_acknowledge")
         self.post("alert_close", {"outcome": "CONFIRMED", "note": "Bad DIMM replaced"})

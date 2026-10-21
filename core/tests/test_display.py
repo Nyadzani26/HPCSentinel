@@ -34,6 +34,15 @@ class DisplayTests(SimpleTestCase):
         self.assertEqual(display.headline(ex, "compute03"), "compute03: available memory 74% lower than normal")
         self.assertEqual(display.headline({}, "compute03"), "compute03 is behaving unusually")
 
+    def test_a_swing_is_called_a_variation_not_a_rise_in_the_metric(self):
+        ex = {"contributors": [{"metric": "mem_available_ratio", "feature": "mem_available_ratio__std_15",
+                                "observed": 0.2, "expected": 0.00002}]}
+        self.assertEqual(display.headline(ex, "compute03"), "compute03: available memory variation 10,000× higher than normal")
+        self.assertEqual(display.contributor_label(ex["contributors"][0]), "Available memory (variation)")
+        level = {"metric": "mem_available_ratio", "feature": "mem_available_ratio__mean_15", "observed": 0.5, "expected": 0.98}
+        self.assertEqual(display.contributor_label(level), "Available memory")
+        self.assertEqual(display.contributor_label({"metric": "cpu_busy"}), "CPU busy")  # older alerts carry no feature name
+
     def test_score_words_and_relative_time(self):
         self.assertEqual(score_words(0.5), "normal")
         self.assertEqual(score_words(8), "very unusual")

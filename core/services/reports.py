@@ -250,12 +250,13 @@ def alerts_csv(start, end) -> str:
                 "came_back", "peak_score", "main_cause", "reviewed_as"])
     qs = Alert.objects.filter(mode=Alert.Mode.LIVE, opened_at__gte=start, opened_at__lt=end).select_related("node").order_by("opened_at")
     for a in qs:
-        top = ((a.explanation or {}).get("contributors") or [{}])[0].get("metric", "")
+        first = ((a.explanation or {}).get("contributors") or [{}])[0]
+        top = first.get("metric", "")
         w.writerow([a.pk, _safe(a.node.name), a.opened_at.strftime("%Y-%m-%d %H:%M"),
                     a.last_seen_at.strftime("%Y-%m-%d %H:%M") if a.last_seen_at else "",
                     a.recovered_at.strftime("%Y-%m-%d %H:%M") if a.recovered_at else "",
                     _minutes(a.lasted), a.get_status_display(), a.resolved_reason, a.recurrences, round(a.peak_score, 2),
-                    _safe(display.label(top)) if top else "", a.get_outcome_display() if a.outcome else ""])
+                    _safe(display.contributor_label(first)) if top else "", a.get_outcome_display() if a.outcome else ""])
     return out.getvalue()
 
 

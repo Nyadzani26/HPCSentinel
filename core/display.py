@@ -32,6 +32,21 @@ def label(metric: str) -> str:
     return metric.replace("_", " ").strip().capitalize()
 
 
+def is_variation(contributor: dict) -> bool:
+    """True when the figure compared is how much a metric swings (its spread over 15 minutes), not its level.
+
+    A memory fault shows up first as memory that suddenly moves, so the largest departure can be the variation of
+    "available memory" rather than the amount of it. Saying "available memory 12,159× higher" there would read as a rise
+    when the memory actually fell.
+    """
+    return "__std_" in (contributor.get("feature") or "")
+
+
+def contributor_label(contributor: dict) -> str:
+    name = label(contributor["metric"])
+    return f"{name} (variation)" if is_variation(contributor) else name
+
+
 def unit_kind(metric: str) -> str:
     return METRICS.get(metric, (None, "number"))[1]
 
@@ -98,6 +113,8 @@ def headline(explanation: dict, node_name: str) -> str:
     top = contributors[0]
     delta = change(top.get("observed"), top.get("expected"))
     name = label(top["metric"]).lower()
+    if is_variation(top):
+        name += " variation"
     if delta["direction"] == "same":
         return f"{node_name}: {name} looks unusual"
     if "normally zero" in delta["text"]:

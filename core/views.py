@@ -254,7 +254,7 @@ def _contributor_rows(contributors):
     rows = []
     for c in contributors:
         delta = display.change(c.get("observed"), c.get("expected"))
-        rows.append({"label": display.label(c["metric"]), "now": display.fmt(c.get("observed"), c["metric"]),
+        rows.append({"label": display.contributor_label(c), "now": display.fmt(c.get("observed"), c["metric"]),
                      "normal": display.fmt(c.get("expected"), c["metric"]), "change": delta["text"],
                      "direction": delta["direction"], "share": round(100 * c.get("z", 0) / top_z),
                      "compared_with": c.get("compared_with", "")})
