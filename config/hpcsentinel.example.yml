@@ -29,8 +29,6 @@ detection:
   alert_threshold: 3.0              # combined score above which a window is abnormal
   window_minutes: 15                # span of data used to prepare each window
   load_idle_cpu_busy: 0.10          # CPU busy ratio below which a node counts as idle
-  # load_busy_disk_ratio: 0.2       # optional: also count a node as busy when its disk is busy this share of the time (I/O-heavy jobs with little CPU)
-  # load_busy_network_bytes: 20000000   # optional: ...or when its network traffic (receive plus send) reaches this many bytes per second
   feature_spans_minutes: [5, 15]    # rolling windows used as features; add 60 only with state_stability_minutes: 60
   state_stability_minutes: 15       # a node is scored only after its load state has been steady this long
   train_stride_minutes: 5           # spacing of the windows used for learning

@@ -2,7 +2,7 @@
 
 ## Load-state stability and feature spans (replay of 18 hours, 8 synthetic nodes, two injected faults)
 
-Load state is inferred from the node's own readings (CPU use, and optionally disk or network traffic, see below), so a change of load changes every feature at once. A window that
+Load state is inferred from CPU use alone, so a change of load changes every feature at once. A window that
 straddles a change describes neither regime, and an unprotected detector alerts on every node at every job
 start and end. The platform therefore scores a node only after its load state has been steady for a
 "stability period", and the period must be at least as long as the longest feature span.
@@ -16,17 +16,29 @@ start and end. The platform therefore scores a node only after its load state ha
 Configuration validation rejects a stability period shorter than the longest span. Slower features (for
 example 60 minutes) remain available by setting both values to 60.
 
-## Input/output-heavy jobs (`load_busy_disk_ratio`, `load_busy_network_bytes`)
+## A light job that looks idle (`load_idle_cpu_busy`)
 
-On Ranger an input/output-heavy job (disk busy about 60% of the time) keeps the processor near 6%, which is under
-the 10% idle threshold. Judged on CPU alone, those nodes were classed IDLE, looked unusual beside the idle baseline
-and, in the first live test, joined a cluster-wide event along with the nodes of the job. They would also have
-contaminated the idle baseline and the idle forest, making a real disk fault harder to see later.
+On the first live day on Ranger, the input/output-oriented baseline job (profile `io`) left the processor at about
+6.5%, under the default 10% idle threshold. Judged on CPU alone its nodes were classed IDLE, looked unusual beside the
+idle baseline (scores of 3.6 to 7) and joined a cluster-wide event. They would also have contaminated the idle
+baseline and the idle forest, making a later fault harder to see.
 
-Two optional detection settings count a node as busy when its median disk-busy ratio, or its median network traffic
-(receive plus send), reaches the stated level, as well as when its CPU does. Both are off unless set; the Ranger
-configuration sets `load_busy_disk_ratio: 0.2`. The limit that remains is a job that is quiet on every watched
-signal, which cannot be told from an idle node without scheduler data (FR-33, deferred).
+The first idea was to count a busy disk as busy as well. That was tried and dropped. The job produced no disk traffic
+the platform can see: `disk_busy_ratio` stayed at 0.0% on the job's node for the whole run. What the job did change
+was small: CPU 6.1% (idle 0.0%), free memory 88.5% (98.4%), context switches 121/s (53/s), open files 704 (544).
+Counting disk traffic as busy would also have been harmful in a fault test, because a real disk fault would then turn
+the node LOADED, hold it unscored for the stability period and compare it with a baseline it does not have.
+
+The remedy is a calibration, not new code. An idle node on Ranger was seen at no more than 0.8% CPU over an hour, so
+the Ranger configuration sets `load_idle_cpu_busy: 0.04`. Any value between about 1% and 6% separates the two. A job
+quieter than the threshold on CPU is still read as idle; telling it apart needs scheduler data (FR-33, deferred).
+
+## Cluster-wide shared-filesystem bursts
+
+On the same day every node showed bursts of NFS requests (about 30 to 48 per second against a normal 0.6), each
+lasting several minutes. A 5-minute burst keeps the 5- and 15-minute features abnormal for about 25 minutes, so every
+idle node scored unusual at once and the platform recorded one cluster-wide event (36 of 36 reporting nodes at its
+peak) instead of 36 alerts. The cause of the bursts was not established.
 
 ## Cold start for rarely loaded nodes
 

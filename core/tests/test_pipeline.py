@@ -48,29 +48,13 @@ class FeatureTests(TestCase):
         self.assertEqual(table[feat.STATE_COL].iloc[50], "IDLE")
         self.assertEqual(table[feat.STATE_COL].iloc[190], "LOADED")
 
-    def test_an_input_output_job_with_little_cpu_is_idle_unless_disk_traffic_counts(self):  # BR-09
+    def test_the_idle_threshold_is_configurable(self):  # BR-09, NFR-10
         frame = self.frame()
-        frame["disk_busy_ratio"] = 0.02
-        frame.loc[frame.index[60]:, "disk_busy_ratio"] = 0.6      # busy disk, processor still under 10%
-        plain = feat.feature_table(frame, config())
-        self.assertEqual(plain[feat.STATE_COL].iloc[190], "IDLE")
-        counted = feat.feature_table(frame, config(load_busy_disk_ratio=0.2))
-        self.assertEqual(counted[feat.STATE_COL].iloc[50], "IDLE")
-        self.assertEqual(counted[feat.STATE_COL].iloc[190], "LOADED")
-
-    def test_heavy_network_traffic_can_also_mark_a_node_busy(self):  # BR-09
-        frame = self.frame()
-        frame["net_rx_bytes_rate"] = 1_000.0
-        frame["net_tx_bytes_rate"] = 1_000.0
-        frame.loc[frame.index[60]:, ["net_rx_bytes_rate", "net_tx_bytes_rate"]] = 50_000_000.0
+        frame.loc[frame.index[60]:, "cpu_busy"] = 0.065           # a light job: under the default 10%, over 4%
         self.assertEqual(feat.feature_table(frame, config())[feat.STATE_COL].iloc[190], "IDLE")
-        counted = feat.feature_table(frame, config(load_busy_network_bytes=20_000_000))
-        self.assertEqual(counted[feat.STATE_COL].iloc[190], "LOADED")
-        self.assertEqual(counted[feat.STATE_COL].iloc[50], "IDLE")
-
-    def test_a_missing_disk_column_does_not_break_the_state(self):  # NFR-10
-        table = feat.feature_table(self.frame(), config(load_busy_disk_ratio=0.2))
-        self.assertEqual(table[feat.STATE_COL].iloc[100], "IDLE")
+        lowered = feat.feature_table(frame, config(load_idle_cpu_busy=0.04))
+        self.assertEqual(lowered[feat.STATE_COL].iloc[50], "IDLE")
+        self.assertEqual(lowered[feat.STATE_COL].iloc[190], "LOADED")
 
     def test_a_change_of_load_state_is_a_transition_and_is_not_scored(self):  # BR-02, BR-09
         frame = self.frame()

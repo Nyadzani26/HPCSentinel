@@ -58,7 +58,7 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
 
     * mean over each feature span (default 5 and 15 minutes) and standard deviation over 15 minutes per metric,
       named like 'cpu_busy__mean_15';
-    * '__load_state': IDLE, LOADED or TRANSITION from the CPU busy ratio, and optionally disk or network traffic (BR-09);
+    * '__load_state': IDLE, LOADED or TRANSITION from the CPU busy ratio (BR-09);
     * '__quality': RELIABLE or UNRELIABLE. A window is unreliable if too much of the last
       15 minutes is missing, if there are no fresh samples in the last 5 minutes, or if
       less than the stability period of data exist, or if the load state changed within the window (BR-02). Unreliable windows never raise alerts.
@@ -85,22 +85,10 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     # not scored for that long after its load changes. Tests on synthetic data showed that
     # 15-minute stability with a 60-minute feature gives false alerts on every node at every
     # job start and end; 15 minutes with 5 and 15 minute features gives none.
-    #
-    # A node is busy when its CPU is. If the administrator sets the optional disk or network thresholds, it is also busy
-    # when its disk or network traffic is: an input/output-heavy job can leave the processor under the threshold, and
-    # calling that node idle would compare it with idle behaviour and score it unusual for doing its job.
     if "cpu_busy" in frame:
-        busy = frame["cpu_busy"].rolling(5, min_periods=1).median() >= det.get("load_idle_cpu_busy", 0.10)
+        raw = (frame["cpu_busy"].rolling(5, min_periods=1).median() >= det.get("load_idle_cpu_busy", 0.10)).astype(int)
     else:
-        busy = pd.Series(False, index=frame.index)
-    disk_limit = det.get("load_busy_disk_ratio")
-    if disk_limit is not None and "disk_busy_ratio" in frame:
-        busy = busy | (frame["disk_busy_ratio"].rolling(5, min_periods=1).median() >= disk_limit)
-    net_limit = det.get("load_busy_network_bytes")
-    net_columns = [c for c in ("net_rx_bytes_rate", "net_tx_bytes_rate") if c in frame]
-    if net_limit is not None and net_columns:
-        busy = busy | (frame[net_columns].sum(axis=1, min_count=1).rolling(5, min_periods=1).median() >= net_limit)
-    raw = busy.astype(int)
+        raw = pd.Series(0, index=frame.index)
     stability = int(det.get("state_stability_minutes", max(spans)))
     low, high = raw.rolling(stability, min_periods=1).min(), raw.rolling(stability, min_periods=1).max()
     table[STATE_COL] = ["LOADED" if lo == 1 else "IDLE" if hi == 0 else "TRANSITION" for lo, hi in zip(low, high)]
