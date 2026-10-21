@@ -12,7 +12,7 @@
       {% if alert.status == "RESOLVED" or alert.recovered_at %}<br>{% if alert.resolved_reason == "no_data" %}Ended {{ alert.recovered_at|ago }} because the node stopped reporting.{% else %}Ended by itself {{ alert.recovered_at|ago }}: the node was normal again.{% endif %}{% endif %}
       {% if alert.closed_at %}<br>Reviewed {{ alert.closed_at|date:"j M Y, H:i" }} UTC.{% endif %}</p>
   </div>
-  {% if alert.outcome %}<span class="pill {{ alert.outcome }}">{{ alert.get_outcome_display }}</span>{% endif %}
+  <div style="display:flex;gap:.5rem;align-items:center"><span class="pill {{ alert.status }}">{{ alert.get_status_display }}</span>{% if alert.outcome %}<span class="pill {{ alert.outcome }}">{{ alert.get_outcome_display }}</span>{% endif %}</div>
 </div>
 <div class="stepper" aria-label="Progress">
   {% for s in steps %}<span class="{{ s.state }}">{{ s.label }}</span>{% if not forloop.last %}<i></i>{% endif %}{% endfor %}

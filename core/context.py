@@ -1,9 +1,9 @@
-"""Values every page needs: the alert badge and the data-source status in the sidebar."""
+"""Values every page needs: the alert badge, the data-source status and the colour of the page edge."""
 from datetime import timedelta
 
 from django.utils import timezone
 
-from core.models import Alert, CycleRun, ModelVersion
+from core.models import Alert, ClusterEvent, CycleRun, ModelVersion
 
 STALE_AFTER = timedelta(minutes=10)
 
@@ -24,6 +24,7 @@ def sentinel(request):
         "nav_alert_count": Alert.objects.filter(mode="LIVE", status__in=Alert.ACTIVE).count(),
         "nav_review_count": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(),
         "nav_status": status,
+        "nav_event_active": ClusterEvent.objects.filter(ended_at__isnull=True).exists(),
         "nav_last_cycle": last.started_at if last else None,
         "nav_has_model": ModelVersion.objects.exists(),
     }

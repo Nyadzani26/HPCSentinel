@@ -1,16 +1,33 @@
 {% extends "base.html" %}
-{% load sentinel %}
+{% load sentinel static %}
 {% block title %}Overview · HPCSentinel{% endblock %}
 {% block content %}
-<div class="head">
+<div class="hero">
   <div>
-    <h1>Overview</h1>
-    <p class="muted">
+    <h1 class="{% if attention or counts.unusual %}alarm{% elif counts.normal %}calm{% endif %}">
       {% if not total %}No nodes yet.
-      {% elif counts.unusual or counts.review %}{{ attention|length }} node{{ attention|length|pluralize }} need{{ attention|length|pluralize:"s," }} attention.
-      {% else %}All {{ counts.normal }} node{{ counts.normal|pluralize }} are behaving normally.{% endif %}
+      {% elif attention %}{{ attention|length }} node{{ attention|length|pluralize }} need{{ attention|length|pluralize:"s," }} attention.
+      {% elif counts.unusual %}{{ counts.unusual }} node{{ counts.unusual|pluralize }} {{ counts.unusual|pluralize:"is,are" }} unusual together, as one cluster-wide event.
+      {% elif not counts.normal %}No node is reporting right now.
+      {% elif counts.unknown %}{{ counts.normal }} of {{ total }} nodes are behaving normally.
+      {% else %}All {{ counts.normal }} node{{ counts.normal|pluralize }} {{ counts.normal|pluralize:"is,are" }} behaving normally.{% endif %}
+    </h1>
+    <p class="muted">
+      {% if not total %}Nodes appear here after the first check reaches Prometheus.
+      {% elif attention %}Open one to see what changed and why it was flagged.
+      {% elif counts.unusual %}When many nodes change together the cause is usually shared, such as the cluster being switched on or off. Nodes that stay unusual afterwards raise their own alerts.
+      {% elif not counts.normal %}The cluster may be switched off. Nodes are judged again as soon as they report.
+      {% else %}Every node is compared with its own normal behaviour, separately for when it is idle and when it is busy.{% endif %}
     </p>
   </div>
+  {% if total %}
+  <dl class="tally" aria-label="Nodes by state">
+    <div class="t-normal{% if not counts.normal %} zero{% endif %}"><dt>Normal</dt><dd>{{ counts.normal }}</dd></div>
+    <div class="t-unusual{% if not needs_attention %} zero{% endif %}"><dt>Need attention</dt><dd>{{ needs_attention }}</dd></div>
+    {% if in_event %}<div class="t-shared"><dt>In cluster event</dt><dd>{{ in_event }}</dd></div>{% endif %}
+    <div class="t-unknown{% if not counts.unknown %} zero{% endif %}"><dt>Not scored</dt><dd>{{ counts.unknown }}</dd></div>
+  </dl>
+  {% endif %}
 </div>
 
 {% if last_cycle and not source_ok %}
@@ -28,7 +45,7 @@
     {% for s in setup %}
     <div class="step"><span class="tick {% if s.done %}done{% endif %}">{% if s.done %}✓{% else %}{{ forloop.counter }}{% endif %}</span>
       <div><strong>{{ s.title }}</strong><div class="muted small">{{ s.text }}</div>
-        {% if not s.done and s.url and user.is_administrator %}<a class="btn small" style="margin-top:.4rem" href="{% url s.url %}">{{ s.action }}</a>{% endif %}</div></div>
+        {% if not s.done and s.url and user.is_administrator %}<a class="btn small" style="margin-top:.5rem" href="{% url s.url %}">{{ s.action }}</a>{% endif %}</div></div>
     {% endfor %}
   </div>
   {% if not user.is_administrator %}<p class="muted small" style="margin-top:.8rem">Ask an Administrator to complete setup.</p>{% endif %}
@@ -51,9 +68,9 @@
     <div class="card attn-card {{ t.css }}">
       <div>
         <h3>{% alert_headline t.alert %}</h3>
-        <div class="muted small">Opened {{ t.alert.opened_at|ago }} · still going, {{ t.alert.lasted|span }} so far · {{ t.window.load_state|default:"–"|lower }}</div>
+        <div class="meta"><span>Opened {{ t.alert.opened_at|ago }}</span><span>still going, {{ t.alert.lasted|span }} so far</span><span>{{ t.window.load_state|default:"–"|lower }}</span></div>
       </div>
-      <div style="display:flex;gap:.7rem;align-items:center">
+      <div style="display:flex;gap:.8rem;align-items:center">
         <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
         <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Look{% else %}Open{% endif %}</a>
       </div>
@@ -63,28 +80,49 @@
 </section>
 {% endif %}
 
-<section aria-labelledby="nodes-h" {% if not attention %}style="margin-top:0"{% endif %}>
+{% if watch %}
+<section aria-labelledby="watch-h" {% if not attention %}style="margin-top:0"{% endif %}>
+  <div class="card watch">
+    <div class="watch-head">
+      <div><h2 id="watch-h">Last 24 hours</h2>
+        <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes (UTC). Click a node to open it.</p></div>
+      <ul class="legend" aria-label="Key">
+        <li><i class="k-n"></i>Normal</li><li><i class="k-u"></i>Unusual</li><li><i class="k-e"></i>Cluster event</li><li><i class="k-q"></i>Not scored</li><li><i class="k-x"></i>No data</li>
+      </ul>
+    </div>
+    <div class="watch-body" id="watch">
+      <canvas role="img" aria-label="The last 24 hours for every node. The node list below shows the current state of each node."></canvas>
+      <div class="watch-tip" role="tooltip"></div>
+    </div>
+  </div>
+</section>
+{{ watch|json_script:"watch-data" }}
+<script src="{% static 'core/watch.js' %}" defer></script>
+{% endif %}
+
+<section aria-labelledby="nodes-h" {% if not attention and not watch %}style="margin-top:0"{% endif %}>
   <h2 id="nodes-h">All nodes</h2>
   {% if tiles %}
   <div class="toolbar">
     <input type="search" id="q" class="grow" placeholder="Find a node, e.g. compute07" aria-label="Find a node" autocomplete="off">
     <div class="chips" role="group" aria-label="Filter by state" id="filters">
       <button type="button" class="chip" data-f="all" aria-pressed="true">All<span class="n">{{ total }}</span></button>
-      <button type="button" class="chip" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ attention|length }}</span></button>
+      <button type="button" class="chip" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ needs_attention }}</span></button>
+      {% if in_event %}<button type="button" class="chip" data-f="shared" aria-pressed="false">In cluster event<span class="n">{{ in_event }}</span></button>{% endif %}
       <button type="button" class="chip" data-f="normal" aria-pressed="false">Normal<span class="n">{{ counts.normal }}</span></button>
       <button type="button" class="chip" data-f="unknown" aria-pressed="false">Not scored<span class="n">{{ counts.unknown }}</span></button>
     </div>
   </div>
   <div class="nodes" id="nodes">
     {% for t in tiles %}
-    <a class="node {{ t.css }}" data-state="{{ t.css }}" data-name="{{ t.node.name }}" href="{% url 'node_detail' t.node.name %}">
-      <span class="top"><span class="dot {{ t.css }}"></span>{{ t.node.name }}</span>
+    <a class="node {{ t.css }}{% if t.label == 'In cluster event' %} shared{% endif %}" data-state="{% if t.label == 'In cluster event' %}shared{% else %}{{ t.css }}{% endif %}" data-name="{{ t.node.name }}" href="{% url 'node_detail' t.node.name %}">
+      <span class="top">{{ t.node.name }}</span>
       <small>{{ t.label }}{% if t.window and t.window.load_state %} · {{ t.window.load_state|lower }}{% endif %}</small>
     </a>
     {% endfor %}
   </div>
   <p class="muted small" id="none" hidden>No node matches.</p>
-  <p class="muted small" style="margin-top:.9rem">
+  <p class="muted small" style="margin-top:1rem;max-width:56rem">
     {% if model %}Compared with what is normal for each node, learned by {{ model.label }} on {{ model.trained_at|date:"j M Y" }}.{% endif %}
     “Not scored” means the node is not being judged right now: it has no reliable recent readings, it is changing between idle and busy, or it has no learned baseline for its current state yet.</p>
   {% else %}

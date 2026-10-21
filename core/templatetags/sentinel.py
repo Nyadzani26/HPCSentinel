@@ -74,3 +74,15 @@ def score_words(value):
     if value < 6:
         return "unusual"
     return "very unusual"
+
+
+@register.filter
+def still_going(events):
+    """The cluster-wide events that have not ended yet."""
+    return [e for e in events if e.is_active]
+
+
+@register.filter
+def ended(events):
+    """The cluster-wide events that have ended."""
+    return [e for e in events if not e.is_active]

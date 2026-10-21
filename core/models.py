@@ -396,7 +396,7 @@ class ExperimentEntry(models.Model):
     anomaly_type = models.CharField(max_length=20, choices=AnomalyType.choices)
     start_at = models.DateTimeField()
     end_at = models.DateTimeField()
-    intensity = models.CharField(max_length=20, blank=True)
+    intensity = models.CharField(max_length=200, blank=True)     # free text such as "stress-ng 8 workers, 90% of memory"
     imported_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="imported_experiments")
 
     class Meta:

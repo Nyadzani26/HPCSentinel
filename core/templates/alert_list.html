@@ -5,18 +5,18 @@
 <div class="head"><div><h1>Alerts</h1>
   <p class="muted">An alert follows one problem on one node. It updates while the problem lasts and closes itself when the node is normal again, so you never have to acknowledge it first. Telling the platform whether it was a real fault is optional, and it is how the platform's accuracy gets measured.</p></div></div>
 {% include "_events.html" %}
-<div class="toolbar">
+<div class="toolbar" style="justify-content:space-between">
   <div class="chips" role="group" aria-label="Filter by status">
     {% for key, label, n in filters %}<a class="chip {% if status == key %}on{% endif %}" href="?status={{ key }}{% if node %}&node={{ node|urlencode }}{% endif %}{% if date_from %}&from={{ date_from }}{% endif %}{% if date_to %}&to={{ date_to }}{% endif %}">{{ label }}<span class="n">{{ n }}</span></a>{% endfor %}
   </div>
+  <form method="get" class="toolbar" style="margin:0" aria-label="Filter alerts">
+    <input type="hidden" name="status" value="{{ status }}">
+    <label>Node <input name="node" value="{{ node }}" placeholder="e.g. compute03" style="width:10.5rem;margin:0"></label>
+    <label>From <input type="date" name="from" value="{{ date_from }}" style="width:10.5rem;margin:0"></label>
+    <label>To <input type="date" name="to" value="{{ date_to }}" style="width:10.5rem;margin:0"></label>
+    <button type="submit" class="btn secondary small">Apply</button>
+  </form>
 </div>
-<form method="get" class="toolbar" aria-label="Filter alerts">
-  <input type="hidden" name="status" value="{{ status }}">
-  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">Node <input name="node" value="{{ node }}" placeholder="e.g. compute03" style="width:11rem;margin:0"></label>
-  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">From <input type="date" name="from" value="{{ date_from }}" style="width:10.5rem;margin:0"></label>
-  <label style="display:flex;gap:.5rem;align-items:center;font-weight:500">To <input type="date" name="to" value="{{ date_to }}" style="width:10.5rem;margin:0"></label>
-  <button type="submit" class="btn secondary small">Apply</button>
-</form>
 {% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
 {% if alerts %}
 <form method="post" action="{% url 'alert_bulk' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
@@ -31,16 +31,16 @@
 </div>
 {% endif %}
 <div class="card flush">
-<table>
+<table class="ledger">
   <thead><tr>{% if can_review %}<th style="width:2rem"></th>{% endif %}<th>Status</th><th>What happened</th><th>When</th><th style="text-align:right">{% if status == "review" %}Was it real?{% else %}Outcome{% endif %}</th></tr></thead>
   <tbody>
   {% for a in alerts %}
   <tr class="link">
     {% if can_review %}<td>{% if a.status != "CLOSED" %}<input type="checkbox" name="ids" value="{{ a.pk }}" class="pick" aria-label="Select {{ a.node.name }}">{% endif %}</td>{% endif %}
     <td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
-    <td><a href="{% url 'alert_detail' a.pk %}"><strong>{% alert_headline a %}</strong></a>
+    <td><a href="{% url 'alert_detail' a.pk %}" class="headline">{% alert_headline a %}</a>
       <div class="muted small">{% if a.recurrences %}Came back {{ a.recurrences }} time{{ a.recurrences|pluralize }} · {% endif %}{% if a.resolved_reason == "no_data" %}Ended when the node stopped reporting{% elif a.status == "RESOLVED" or a.status == "CLOSED" and a.recovered_at %}Ended by itself when the node was normal again{% endif %}</div></td>
-    <td title="Opened {{ a.opened_at|date:'Y-m-d H:i' }} UTC">{{ a.opened_at|ago }}
+    <td class="when" title="Opened {{ a.opened_at|date:'Y-m-d H:i' }} UTC">{{ a.opened_at|ago }}
       <div class="muted small">{% if a.is_active %}still going, {{ a.lasted|span }} so far{% else %}lasted {{ a.lasted|span }}{% endif %}</div></td>
     <td style="text-align:right;white-space:nowrap">
       {% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>

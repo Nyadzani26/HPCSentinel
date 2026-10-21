@@ -166,6 +166,18 @@ class EventNodeLabelTests(TestCase):
         self.assertIn("its own alert is held back", page)
         self.assertIn("In cluster event", self.client.get(reverse("home")).content.decode())
 
+    def test_nodes_held_back_by_an_event_are_not_counted_as_needing_attention(self):
+        """The Overview tally must not say 'need attention' for nodes that are part of one shared event."""
+        self.window(self.node, 4.0)
+        self.window(self.quiet, 4.5)
+        self.event()
+        response = self.client.get(reverse("home"))
+        self.assertEqual(response.context["needs_attention"], 0)
+        self.assertEqual(response.context["in_event"], 2)
+        page = response.content.decode()
+        self.assertEqual(page.count('data-state="shared"'), 2)
+        self.assertEqual(page.count('data-state="unusual"'), 0)
+
     def test_a_node_in_the_event_that_is_back_to_normal_is_normal(self):
         self.window(self.quiet, 1.0)
         self.event()

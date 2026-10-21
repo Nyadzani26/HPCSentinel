@@ -253,6 +253,17 @@ class ExperimentImportTests(TestCase):
         self.assertEqual(n, 1)
         self.assertEqual(ExperimentEntry.objects.get().anomaly_type, "CPU")
 
+    def test_a_descriptive_intensity_is_kept_and_an_over_long_one_is_refused_with_a_message(self):
+        """The 21 Oct log used sentences such as 'stress-ng --vm 4 --vm-bytes 80%' and PostgreSQL rejected them at 20 characters."""
+        row = "compute01,io,2026-10-21T16:45:00Z,2026-10-21T17:00:00Z,{}\n"
+        sentence = "dd to the shared NFS mount with about 2 GB written at full speed"
+        jobs.import_experiments("node,anomaly_type,start,end,intensity\n" + row.format(sentence), self.user)
+        self.assertEqual(ExperimentEntry.objects.get().intensity, sentence)
+        ExperimentEntry.objects.all().delete()
+        with self.assertRaisesMessage(JobError, "Row 2: the intensity text is 201 characters long; the limit is 200."):
+            jobs.import_experiments("node,anomaly_type,start,end,intensity\n" + row.format("x" * 201), self.user)
+        self.assertEqual(ExperimentEntry.objects.count(), 0)
+
     def test_invalid_row_rejects_the_whole_file(self):
         text = ("node,anomaly_type,start,end\ncompute01,cpu,2026-10-02T10:00:00Z,2026-10-02T11:00:00Z\n"
                 "compute99,cpu,2026-10-02T10:00:00Z,2026-10-02T11:00:00Z\n")

@@ -23,7 +23,7 @@
     </div>
   </div>
   <div class="card"><h2>Nodes involved ({{ nodes|length }})</h2>
-    <div class="chips">{% for n in nodes %}<a class="chip" href="{% url 'node_detail' n %}">{{ n }}</a>{% endfor %}</div>
+    <div class="chips loose">{% for n in nodes %}<a class="chip" href="{% url 'node_detail' n %}">{{ n }}</a>{% endfor %}</div>
   </div>
 </div>
 {% endblock %}

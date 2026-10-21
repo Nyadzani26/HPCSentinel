@@ -248,8 +248,11 @@ def import_experiments(text: str, user: User) -> int:
         s, e = parse_time(row["start"]), parse_time(row["end"])
         if e <= s:
             raise JobError(f"Row {number}: the end must be after the start.")
-        entries.append(ExperimentEntry(node=node, anomaly_type=kind, start_at=s, end_at=e,
-                                       intensity=(row.get("intensity") or "").strip(), imported_by=user))
+        intensity = (row.get("intensity") or "").strip()
+        limit = ExperimentEntry._meta.get_field("intensity").max_length
+        if len(intensity) > limit:       # say so here: PostgreSQL would otherwise fail the whole import with a server error
+            raise JobError(f"Row {number}: the intensity text is {len(intensity)} characters long; the limit is {limit}.")
+        entries.append(ExperimentEntry(node=node, anomaly_type=kind, start_at=s, end_at=e, intensity=intensity, imported_by=user))
     if not entries:
         raise JobError("The file contains no rows.")
     ExperimentEntry.objects.bulk_create(entries)

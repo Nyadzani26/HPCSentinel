@@ -5,7 +5,7 @@
 <div class="crumbs"><a href="{% url 'home' %}">Overview</a> / {{ node.name }}</div>
 <div class="head">
   <div>
-    <h1 style="display:flex;gap:.8rem;align-items:center;flex-wrap:wrap">{{ node.name }} <span class="pill {{ state_css }}">{{ state_label }}</span></h1>
+    <h1 style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">{{ node.name }} <span class="pill {{ state_css }}{% if state_label == 'In cluster event' %} shared{% endif %}">{{ state_label }}</span></h1>
     <p class="muted">
       {% if latest %}Checked {{ latest.window_end|ago }}.
         {% if latest.load_state %}The node is {{ latest.load_state|lower }}, so it is compared with its own {{ latest.load_state|lower }} behaviour and with other nodes in the same state.{% endif %}
@@ -18,11 +18,14 @@
 
 {% if latest and latest.combined_score is not None %}
 <div class="card">
-  <div style="display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;align-items:baseline">
-    <h2>How unusual is it?</h2>
-    <span class="muted small">Now: <strong style="color:var(--ink)">{{ latest.combined_score|score_words }}</strong> ({{ latest.combined_score|floatformat:1 }}). An alert opens when it stays above the alert level for several checks in a row.</span>
+  <div class="scorebox">
+    <div>
+      <div class="big">{{ latest.combined_score|floatformat:1 }}</div>
+      <div class="words {{ state_css }}">{{ latest.combined_score|score_words|capfirst }}</div>
+      <p>Now: {{ latest.combined_score|score_words }} ({{ latest.combined_score|floatformat:1 }}). An alert opens when it stays above the alert level for several checks in a row.</p>
+    </div>
+    <div><h2>How unusual is it?</h2><div id="score"></div></div>
   </div>
-  <div id="score"></div>
 </div>
 {% endif %}
 

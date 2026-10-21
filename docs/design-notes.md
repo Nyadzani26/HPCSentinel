@@ -191,3 +191,48 @@ Ranger shutdown is the only real example so far.
 
 **Known limitation.** The rule detects that many nodes changed together, not why. A planned shutdown and a power
 failure look the same to it. The event page says what changed and leaves the interpretation to the administrator.
+
+## Interface redesign (22 Oct 2026)
+
+**Problem.** The first interface was correct but flat: a grey sidebar, identical white cards and a wall of 48 tiles.
+After the 21 Oct campaign the Overview also had a real weakness: it showed only the present moment. A person who
+had been away for a day could not see when things changed, which nodes were involved, or whether a burst was one
+shared event or many separate faults, without opening several pages.
+
+**Decision.** The design rule is that colour is reserved for state. Everything else is ink on paper. The five
+state colours each mean one thing: green normal, red unusual, amber under review, indigo part of a cluster-wide
+event, grey not scored. They are used the same way in the tiles, pills, chart bands and the history map.
+
+- **The history map.** The Overview now has a node-by-time map of the last 24 hours (`services/timeline.py`,
+  `static/core/watch.js`): one row per node, one column per 15 minutes, drawn on a canvas. A cell is unusual when any
+  scored check in it reached the alert level, and a cluster-event cell when that node belongs to an event covering
+  that column. Cells with no data are drawn as dots so an empty stretch (the cluster was switched off) reads as
+  "nothing was recorded" and not as "everything was fine". Each row and each event band links to its page. The node
+  tiles below remain the accessible, text version of the same information.
+- **Top bar instead of a sidebar.** More width for the map and tables. The bar has a 3 px edge that is green,
+  red, indigo or amber for the overall state, so the state is visible from any page without reading anything.
+- **Past events are one line.** Only an event that is still going gets a full notice. Ended events collapse into a
+  single expandable row, because three tall notices pushed the map below the fold.
+- **Tiles.** Only exceptions carry colour (a filled tile and a coloured edge); a normal node has a small green
+  dot. Forty-three identical green tiles hid the two that mattered.
+- **Counting.** Nodes held back by a running event are counted as "In cluster event", not as "Need attention".
+  The first redesign counted them twice and showed "2 nodes need attention" beside a tally of 24.
+- **Type.** Bricolage Grotesque for headings and the large numbers, Public Sans for text. Both are bundled
+  (`static/core/fonts`, OFL licences included), so the page needs no external font service on a cluster network.
+- **Motion.** One reveal of the map when the Overview opens. Reduced motion is respected. Light and dark follow
+  the system setting. Everything works down to 390 px wide; on a phone the map scrolls and opens at "now".
+
+**Not done on purpose.** The map shows the combined score only, not the three components. Those are on the node
+and alert pages, where there is room to explain them.
+
+**Two defects found by looking at screenshots rather than reading the CSS.** The progress-bar class `.bar`
+collided with the top bar's class and collapsed the whole header to half a rem, and the first draft of the map hid
+the empty part of the day, which made a half-day of data look like a mostly empty chart. Both were invisible in
+the tests.
+
+## Experiment log: intensity text
+
+`ExperimentEntry.intensity` was limited to 20 characters. SQLite, used in the tests, does not enforce that limit
+and PostgreSQL does, so the 21 Oct log (which described each fault in a sentence) imported in the tests and failed
+with a server error in production. The limit is now 200 characters, and an over-long value is refused with a message
+naming the row, so the file is never half-imported and the person is told what to shorten.

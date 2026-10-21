@@ -13,6 +13,7 @@ from django.db import connection
 from django.db.models import Count, Q
 from django.http import Http404, HttpResponse, HttpResponseForbidden, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
@@ -25,6 +26,7 @@ from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
 from core.services import settings_store
 from core.services import autolearn
+from core.services import timeline as timeline_service
 from core.services import reports as reports_service
 from core.services.review import PermissionDenied, ReviewService
 
@@ -106,6 +108,7 @@ def home(request):
         tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
     tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
+    in_event = sum(1 for t in tiles if t["label"] == "In cluster event")       # unusual, but part of one shared event
     source_ok = bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER)
     model = ModelVersion.objects.order_by("-trained_at").first()
     setup = [
@@ -117,11 +120,25 @@ def home(request):
          "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
     ]
     return render(request, "fleet.html", {
+        "watch": _watch(level) if tiles else None,
         "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(), "events": recent_events(),
-        "tiles": tiles, "counts": counts, "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
+        "tiles": tiles, "counts": counts, "needs_attention": counts["unusual"] + counts["review"] - in_event, "in_event": in_event,
+        "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
         "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
         "total": len(tiles),
     })
+
+
+def _watch(level):
+    """The last 24 hours of every node for the history map, with the links the map needs. None when there is nothing to draw."""
+    grid = timeline_service.fleet_timeline(level)
+    if not grid["has_data"]:
+        return None
+    for row in grid["rows"]:
+        row["url"] = reverse("node_detail", args=[row["node"]])
+    for event in grid["events"]:
+        event["url"] = reverse("event_detail", args=[event["id"]])
+    return grid
 
 
 def _learning_blurb(model):
