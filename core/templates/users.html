@@ -3,6 +3,7 @@
 {% block content %}
 <div class="head"><div><h1>Users</h1><p class="muted">Administrators manage settings, models and users. Operators review alerts.</p></div></div>
 <div class="card flush">
+<h2>People who can sign in <span class="count quiet">{{ users|length }}</span></h2>
 <table>
   <thead><tr><th>Username</th><th>Role</th><th>Status</th><th></th></tr></thead>
   <tbody>
@@ -20,9 +21,9 @@
   </tr>{% endfor %}
   </tbody>
 </table></div>
-<section>
+<section class="card form-card">
   <h2>Add a user</h2>
-  <form method="post" class="card form" style="max-width:32rem">{% csrf_token %}
+  <form method="post" class="form">{% csrf_token %}
     {{ form.non_field_errors }}
     <label for="id_username">Username{{ form.username }}{{ form.username.errors }}</label>
     <label for="id_password">Password<span class="hint">At least 10 characters, not a common password.</span>{{ form.password }}{{ form.password.errors }}</label>

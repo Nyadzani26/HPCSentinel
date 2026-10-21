@@ -42,8 +42,7 @@
     </div>
   </div>
   {% if readiness %}
-  <section><h2>Data check</h2>
-  <div class="card flush"><table>
+  <section><div class="card flush"><h2>Data check</h2><table>
     <thead><tr><th>Metric</th><th>Nodes with data</th><th>Result</th><th>What to do</th></tr></thead>
     <tbody>{% for r in readiness %}<tr><td>{{ r.name|metric_label }}<div class="muted small">{{ r.name }}</div></td><td>{{ r.nodes }} of {{ r.expected }}</td>
       <td><span class="pill {% if r.status == 'Present' %}normal{% elif r.status == 'Partial' or r.status == 'Suspect' %}review{% else %}unusual{% endif %}">{{ r.status }}</span></td>
@@ -81,8 +80,7 @@
       {% else %}<div class="empty"><strong>No model yet</strong>Learning starts by itself once there is enough data.</div>{% endif %}
     </div>
   </div>
-  <section><h2>Recent activity</h2>
-  <div class="card flush"><table>
+  <section><div class="card flush"><h2>Recent activity</h2><table>
     <thead><tr><th>Job</th><th>Status</th><th>Requested</th><th>Result</th></tr></thead>
     <tbody>{% for j in jobs %}<tr><td>{{ j.get_type_display }}</td><td><span class="pill {{ j.status }}">{{ j.get_status_display }}</span></td><td>{{ j.requested_at|ago }}</td><td>{{ j.message|default:"–" }}</td></tr>
     {% empty %}<tr><td colspan="4" class="muted">Nothing has been requested yet.</td></tr>{% endfor %}</tbody>
@@ -124,8 +122,7 @@
         <label for="id_eval-end">To (UTC){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
         <button type="submit" class="btn">Evaluate</button></form></div>
   </div>
-  <section><h2>Results</h2>
-  <div class="card flush"><table>
+  <section><div class="card flush"><h2>Results</h2><table>
     <thead><tr><th>Model</th><th>Period</th><th class="num">Problems found</th><th class="num">Median time to alert</th><th class="num">False alerts per node per week</th></tr></thead>
     <tbody>{% for e in evaluations %}<tr><td>{{ e.model.label }}</td><td class="small">{{ e.period_start|date:"j M H:i" }} – {{ e.period_end|date:"j M H:i" }}</td>
       <td class="num"><strong>{{ e.episodes_detected }} of {{ e.episodes_total }}</strong></td>

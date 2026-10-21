@@ -18,19 +18,20 @@
 
 {% if latest and latest.combined_score is not None %}
 <div class="card">
+  <h2>How unusual is it?</h2>
   <div class="scorebox">
     <div>
       <div class="big">{{ latest.combined_score|floatformat:1 }}</div>
       <div class="words {{ state_css }}">{{ latest.combined_score|score_words|capfirst }}</div>
       <p>Now: {{ latest.combined_score|score_words }} ({{ latest.combined_score|floatformat:1 }}). An alert opens when it stays above the alert level for several checks in a row.</p>
     </div>
-    <div><h2>How unusual is it?</h2><div id="score"></div></div>
+    <div id="score"></div>
   </div>
 </div>
 {% endif %}
 
 {% if unusual %}
-<section>
+<section class="card">
   <h2>Most unusual metrics right now</h2>
   <p class="muted small">The shaded band is the range this node normally stays in{% if latest %} when {{ latest.load_state|lower }}{% endif %}.</p>
   <div class="charts" id="unusual">
@@ -42,26 +43,26 @@
 {% endif %}
 
 {% if rest %}
-<section>
-  <details>
-    <summary>{% if unusual %}Other metrics ({{ rest|length }}){% else %}All metrics ({{ rest|length }}){% endif %}</summary>
-    <div class="charts" id="rest" style="margin-top:.7rem">
+<section class="card flush">
+  <details class="panel-fold">
+    <summary><h2>{% if unusual %}Other metrics{% else %}All metrics{% endif %} <span class="count quiet">{{ rest|length }}</span></h2></summary>
+    <div class="panel-body charts" id="rest">
       {% for m in rest %}<div class="card chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
     </div>
   </details>
 </section>
 {% endif %}
 
-<section>
+<section class="card flush">
   <h2>Alert history for this node</h2>
   {% if alerts %}
-  <div class="card flush"><table>
+  <table>
     <thead><tr><th>Status</th><th>What happened</th><th>Opened</th><th>Outcome</th></tr></thead>
     <tbody>{% for a in alerts %}<tr class="link"><td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
       <td><a href="{% url 'alert_detail' a.pk %}">{% alert_headline a %}</a></td><td>{{ a.opened_at|ago }}</td>
       <td>{% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>{% else %}<span class="muted">–</span>{% endif %}</td></tr>{% endfor %}</tbody>
-  </table></div>
-  {% else %}<div class="card empty"><strong>No alerts so far</strong>Earlier alerts and how they were closed will be listed here.</div>{% endif %}
+  </table>
+  {% else %}<div class="empty"><strong>No alerts so far</strong>Earlier alerts and how they were closed will be listed here.</div>{% endif %}
 </section>
 
 {{ chart|json_script:"score-data" }}{{ threshold|json_script:"threshold" }}{{ markers|json_script:"markers" }}

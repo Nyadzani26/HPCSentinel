@@ -246,6 +246,32 @@ left out and the map takes the full width.
 - The alert page now opens with a score card (highest score, and the score over the life of the alert against the
   alert level). That chart used to sit unlabeled at the bottom of "Why this was flagged".
 
+### Third pass: everything is a panel
+
+After the second pass the Overview still had loose parts: headings and filters floating on the page background, notices
+of different shapes, and a flat list of 48 tiles. One rule now covers every page: a block is a card, and a card
+that has a title has a tinted title band.
+
+- The page header, the status headline, the progress strip, the settings tabs and the report figures are cards. The
+  status headline carries the state on its left edge (red, green or grey).
+- The side panel is three panels: Needs attention (rows with a count), Cluster-wide events (a running event on top, the
+  earlier ones folded away) and Recovered alerts.
+- The map's legend moved to a footer strip, and the node list became a panel with its search and filters in a bar
+  and its footnote in a footer. The list is split by chassis, as the map is, so a chassis reads the same in both. A
+  chassis is hidden while a search matches none of its nodes.
+- Alerts is one panel: filters, bulk actions and the table share a single card.
+- Headings that used to float above a table now sit inside it (Settings, Users, node history).
+- Spacing comes from one value (`--gap`) applied to the children of `main`, not from per-page margins.
+- On a phone the node list shows two tiles per row, and the alerts list is one block per alert instead of a table row.
+  A wide table (the per-node report table, say) scrolls inside its card, so no page is wider than the screen. A script
+  (a throwaway script, not in the repository) measured every page at 390 and 768 px for this.
+
+**Stale styles after a deploy.** The stylesheet and script are served by WhiteNoise under fixed names with
+`Cache-Control: max-age=60`, so a browser or a proxy in front can keep an old copy after an update, and new markup
+against old CSS looks unorganised. Their addresses now carry a fingerprint of their content
+(`sentinel.css?v=abc1234` and `watch.js?v=abc1234`, `core/context.py`), which changes whenever either file does, and the same value is shown
+in the footer ("interface abc1234") so a person can tell which version they are looking at.
+
 ## Experiment log: intensity text
 
 `ExperimentEntry.intensity` was limited to 20 characters. SQLite, used in the tests, does not enforce that limit

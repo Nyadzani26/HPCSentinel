@@ -5,7 +5,8 @@
 <div class="head"><div><h1>Alerts</h1>
   <p class="muted">An alert follows one problem on one node. It updates while the problem lasts and closes itself when the node is normal again, so you never have to acknowledge it first. Telling the platform whether it was a real fault is optional, and it is how the platform's accuracy gets measured.</p></div></div>
 {% include "_events.html" %}
-<div class="toolbar" style="justify-content:space-between">
+<section class="card flush" aria-label="Alerts">
+<div class="panel-bar spread">
   <div class="chips" role="group" aria-label="Filter by status">
     {% for key, label, n in filters %}<a class="chip {% if status == key %}on{% endif %}" href="?status={{ key }}{% if node %}&node={{ node|urlencode }}{% endif %}{% if date_from %}&from={{ date_from }}{% endif %}{% if date_to %}&to={{ date_to }}{% endif %}">{{ label }}<span class="n">{{ n }}</span></a>{% endfor %}
   </div>
@@ -17,7 +18,7 @@
     <button type="submit" class="btn secondary small">Apply</button>
   </form>
 </div>
-{% for e in errors %}<p class="error">{{ e }}</p>{% endfor %}
+{% for e in errors %}<p class="error" style="padding:.7rem 1.3rem 0;margin:0">{{ e }}</p>{% endfor %}
 {% if alerts %}
 <form method="post" action="{% url 'alert_bulk' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
 {% if can_review %}
@@ -30,7 +31,6 @@
   </span>
 </div>
 {% endif %}
-<div class="card flush">
 <table class="ledger">
   <thead><tr>{% if can_review %}<th style="width:2rem"></th>{% endif %}<th>Status</th><th>What happened</th><th>When</th><th style="text-align:right">{% if status == "review" %}Was it real?{% else %}Outcome{% endif %}</th></tr></thead>
   <tbody>
@@ -52,9 +52,20 @@
   </tr>
   {% endfor %}
   </tbody>
-</table></div>
+</table>
 </form>
-{% if can_review %}
+
+{% else %}
+<div class="empty">
+  {% if status == "live" %}<strong>Nothing is happening right now</strong>
+    {% if counts.review %}{{ counts.review }} recovered alert{{ counts.review|pluralize }} {{ counts.review|pluralize:"is,are" }} waiting for an optional review. <a href="?status=review">Have a look</a>.
+    {% else %}When a node behaves unusually for several checks in a row, an alert appears here and closes itself when the node is normal again.{% endif %}
+  {% elif status == "review" %}<strong>Nothing is waiting for review</strong>Alerts that recovered by themselves appear here, so you can say whether each one was real.
+  {% else %}<strong>No alerts match</strong>Try a different tab or clear the filters.{% endif %}
+</div>
+{% endif %}
+</section>
+{% if alerts and can_review %}
 <script>
 (function () {
   var all = document.getElementById('pick-all'), boxes = document.querySelectorAll('.pick'), label = document.getElementById('picked'),
@@ -70,14 +81,5 @@
   update();
 })();
 </script>
-{% endif %}
-{% else %}
-<div class="card empty">
-  {% if status == "live" %}<strong>Nothing is happening right now</strong>
-    {% if counts.review %}{{ counts.review }} recovered alert{{ counts.review|pluralize }} {{ counts.review|pluralize:"is,are" }} waiting for an optional review. <a href="?status=review">Have a look</a>.
-    {% else %}When a node behaves unusually for several checks in a row, an alert appears here and closes itself when the node is normal again.{% endif %}
-  {% elif status == "review" %}<strong>Nothing is waiting for review</strong>Alerts that recovered by themselves appear here, so you can say whether each one was real.
-  {% else %}<strong>No alerts match</strong>Try a different tab or clear the filters.{% endif %}
-</div>
 {% endif %}
 {% endblock %}

@@ -3,7 +3,7 @@
 {% block title %}Alert on {{ alert.node.name }} · HPCSentinel{% endblock %}
 {% block content %}
 <div class="crumbs"><a href="{% url 'alert_list' %}">Alerts</a> / <a href="{% url 'node_detail' alert.node.name %}">{{ alert.node.name }}</a></div>
-<div class="head" style="margin-bottom:.4rem">
+<div class="head">
   <div>
     <h1>{% alert_headline alert %}</h1>
     <p class="muted">Started {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} UTC)
@@ -19,23 +19,24 @@
 </div>
 
 {% if chart %}
-<div class="card" style="margin-top:1.3rem">
+<div class="card">
+  <h2>How unusual it was</h2>
   <div class="scorebox">
     <div>
       <div class="big">{{ alert.peak_score|floatformat:1 }}</div>
       <div class="words unusual">{% if alert.is_active %}Highest so far{% else %}Highest score{% endif %}</div>
       <p>An alert opens when the score stays above the alert level (the dashed line) for several checks in a row.</p>
     </div>
-    <div><h2>How unusual it was</h2><div id="score"></div></div>
+    <div id="score"></div>
   </div>
 </div>
 {% endif %}
 
-<div class="two" style="margin-top:1.3rem">
+<div class="two">
   <div>
     <div class="card">
       <h2>What changed</h2>
-      <p class="muted small">These metrics moved furthest from what is normal for this node{% if latest_at %}, as of the latest check{% endif %}. The bar shows how much each one counted towards the alert.</p>
+      <p class="muted small">These metrics moved furthest from what is normal for this node{% if latest_at %}, as of the latest check{% endif %}.<span class="wide-only"> The bar shows how much each one counted towards the alert.</span></p>
       {% if rows %}
       <table>
         <thead><tr><th>Metric</th><th class="num">Now</th><th class="num">Normal</th><th>Change</th><th>Contribution</th></tr></thead>
@@ -51,7 +52,7 @@
       {% endif %}
     </div>
 
-    <div class="card" style="margin-top:1rem">
+    <div class="card">
       <h2>Why this was flagged</h2>
       <p>The node was <strong>{{ load_state|default:"–" }}</strong>, so it was compared with its own {{ load_state }} behaviour and with other nodes in the group that were also {{ load_state }}. It stayed outside the normal range for <strong>{{ alert.explanation.persistence_windows }} checks in a row</strong>, which is what makes it an alert rather than a blip.</p>
       {% if history %}
@@ -102,7 +103,7 @@
       {% endif %}
     </div>
 
-    <div class="card" style="margin-top:1rem">
+    <div class="card">
       <h2>Activity</h2>
       {% if actions %}
       <ul class="timeline">

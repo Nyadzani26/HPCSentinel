@@ -8,7 +8,7 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%230c1922'/%3E%3Cg fill='%2399aab5'%3E%3Crect x='4' y='4' width='4' height='4'/%3E%3Crect x='10' y='4' width='4' height='4'/%3E%3Crect x='16' y='4' width='4' height='4'/%3E%3Crect x='4' y='10' width='4' height='4'/%3E%3Crect x='16' y='10' width='4' height='4'/%3E%3Crect x='4' y='16' width='4' height='4'/%3E%3Crect x='10' y='16' width='4' height='4'/%3E%3Crect x='16' y='16' width='4' height='4'/%3E%3C/g%3E%3Crect x='10' y='10' width='4' height='4' fill='%232fcf9f'/%3E%3C/svg%3E">
   <link rel="preload" href="{% static 'core/fonts/bricolage-grotesque-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="{% static 'core/fonts/public-sans-latin-wght-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="{% static 'core/sentinel.css' %}">
+  <link rel="stylesheet" href="{% static 'core/sentinel.css' %}?v={{ asset_v }}">
 </head>
 {% if user.is_authenticated %}
 <body data-edge="{% if nav_status.0 == 'down' %}down{% elif nav_alert_count %}attn{% elif nav_event_active %}event{% else %}ok{% endif %}">
@@ -41,6 +41,7 @@
 <main id="main">
   {% for m in messages %}<div class="toast {{ m.tags }}" role="status"><span>{{ m }}</span><button type="button" aria-label="Dismiss" onclick="this.parentNode.remove()">×</button></div>{% endfor %}
   {% block content %}{% endblock %}
+  <p class="foot">HPCSentinel · interface {{ asset_v }}</p>
 </main>
 </body>
 {% else %}

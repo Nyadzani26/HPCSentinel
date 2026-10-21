@@ -2,9 +2,9 @@
 {% load sentinel static %}
 {% block title %}Overview · HPCSentinel{% endblock %}
 {% block content %}
-<div class="hero">
+<div class="hero {% if attention or counts.unusual %}alarm{% elif counts.normal %}calm{% endif %}">
   <div>
-    <h1 class="{% if attention or counts.unusual %}alarm{% elif counts.normal %}calm{% endif %}">
+    <h1>
       {% if not total %}No nodes yet.
       {% elif attention %}{{ attention|length }} node{{ attention|length|pluralize }} need{{ attention|length|pluralize:"s," }} attention.
       {% elif counts.unusual %}{{ counts.unusual }} node{{ counts.unusual|pluralize }} {{ counts.unusual|pluralize:"is,are" }} unusual together, as one cluster-wide event.
@@ -38,7 +38,7 @@
 {% endif %}
 
 {% if not setup_done %}
-<div class="card" style="margin-bottom:1.4rem">
+<div class="card">
   <h2>Get started</h2>
   <p class="muted">Three steps and HPCSentinel watches the cluster for you.</p>
   <div class="steps">
@@ -54,32 +54,31 @@
 
 <div class="deck{% if not watch %} solo{% endif %}{% if not attention and not events and not to_review %} bare{% endif %}">
   <aside class="rail" aria-label="What needs a look">
-    {% include "_events.html" with part="active" %}
+    {% if events|still_going %}{% include "_events.html" %}{% endif %}
     {% if attention %}
-    <section aria-labelledby="attn-h">
-      <h2 id="attn-h">Needs attention</h2>
-      <div class="attn">
+    <section class="card flush" aria-labelledby="attn-h">
+      <h2 id="attn-h">Needs attention <span class="count bad">{{ attention|length }}</span></h2>
+      <ul class="rows">
         {% for t in attention %}
-        <div class="card attn-card {{ t.css }}">
-          <div>
-            <h3>{% alert_headline t.alert %}</h3>
-            <div class="meta"><span>Opened {{ t.alert.opened_at|ago }}, still going</span><span>{{ t.window.load_state|default:"–"|lower }}</span></div>
-          </div>
+        <li class="row {{ t.css }}">
+          <h3>{% alert_headline t.alert %}</h3>
+          <div class="meta"><span>Opened {{ t.alert.opened_at|ago }}, still going</span><span>{{ t.window.load_state|default:"–"|lower }}</span></div>
           <div class="act">
             <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
             <a class="btn" href="{% url 'alert_detail' t.alert.pk %}">{% if t.alert.status == "OPEN" %}Look{% else %}Open{% endif %}</a>
           </div>
-        </div>
+        </li>
         {% endfor %}
-      </div>
+      </ul>
     </section>
     {% endif %}
-    {% include "_events.html" with part="past" %}
+    {% if not events|still_going %}{% include "_events.html" %}{% endif %}
     {% if to_review %}
-    <div class="notice review">
-      <span><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</span>
-      <a class="btn small" href="{% url 'alert_list' %}?status=review">Review</a>
-    </div>
+    <section class="card flush" aria-labelledby="rev-h">
+      <h2 id="rev-h">Recovered alerts <span class="count quiet">{{ to_review }}</span></h2>
+      <div class="row"><p style="margin:0"><strong>{{ to_review }} recovered alert{{ to_review|pluralize }}</strong> {{ to_review|pluralize:"is,are" }} waiting for a quick, optional review. Nothing is wrong right now.</p>
+        <a class="btn small" href="{% url 'alert_list' %}?status=review">Review</a></div>
+    </section>
     {% endif %}
   </aside>
 
@@ -89,26 +88,28 @@
       <div class="watch-head">
         <div><h2 id="watch-h">Last 24 hours</h2>
           <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes (UTC). Click a node to open it.</p></div>
-        <ul class="legend" aria-label="Key">
-          <li><i class="k-n"></i>Normal</li><li><i class="k-u"></i>Unusual</li><li><i class="k-e"></i>Cluster event</li><li><i class="k-q"></i>Not scored</li><li><i class="k-x"></i>No data</li>
-        </ul>
       </div>
       <div class="watch-body" id="watch">
         <canvas role="img" aria-label="The last 24 hours for every node. The node list below shows the current state of each node."></canvas>
         <div class="watch-tip" role="tooltip"></div>
       </div>
+      <div class="panel-foot">
+        <ul class="legend" aria-label="Key">
+          <li><i class="k-n"></i>Normal</li><li><i class="k-u"></i>Unusual</li><li><i class="k-e"></i>Cluster event</li><li><i class="k-q"></i>Not scored</li><li><i class="k-x"></i>No data</li>
+        </ul>
+      </div>
     </div>
   </section>
   {{ watch|json_script:"watch-data" }}
-  <script src="{% static 'core/watch.js' %}" defer></script>
+  <script src="{% static 'core/watch.js' %}?v={{ asset_v }}" defer></script>
   {% endif %}
 </div>
 
-<section aria-labelledby="nodes-h">
-  <h2 id="nodes-h">All nodes</h2>
+<section class="card flush" aria-labelledby="nodes-h">
+  <h2 id="nodes-h">All nodes <span class="count quiet">{{ total }}</span></h2>
   {% if tiles %}
-  <div class="toolbar">
-    <input type="search" id="q" class="grow" placeholder="Find a node, e.g. compute07" aria-label="Find a node" autocomplete="off">
+  <div class="panel-bar spread">
+    <input type="search" id="q" class="grow" style="max-width:24rem" placeholder="Find a node, e.g. compute07" aria-label="Find a node" autocomplete="off">
     <div class="chips" role="group" aria-label="Filter by state" id="filters">
       <button type="button" class="chip" data-f="all" aria-pressed="true">All<span class="n">{{ total }}</span></button>
       <button type="button" class="chip" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ needs_attention }}</span></button>
@@ -117,20 +118,27 @@
       <button type="button" class="chip" data-f="unknown" aria-pressed="false">Not scored<span class="n">{{ counts.unknown }}</span></button>
     </div>
   </div>
-  <div class="nodes" id="nodes">
-    {% for t in tiles %}
-    <a class="node {{ t.css }}{% if t.label == 'In cluster event' %} shared{% endif %}" data-state="{% if t.label == 'In cluster event' %}shared{% else %}{{ t.css }}{% endif %}" data-name="{{ t.node.name }}" href="{% url 'node_detail' t.node.name %}">
-      <span class="top">{{ t.node.name }}</span>
-      <small>{{ t.label }}{% if t.window and t.window.load_state %} · {{ t.window.load_state|lower }}{% endif %}</small>
-    </a>
+  <div class="panel-body" id="nodes">
+    {% for g in tile_groups %}
+    <div class="node-group">
+      {% if g.name %}<h3 class="group-title">{{ g.name }} <small>{{ g.tiles|length }} node{{ g.tiles|length|pluralize }}</small></h3>{% endif %}
+      <div class="nodes">
+        {% for t in g.tiles %}
+        <a class="node {{ t.css }}{% if t.label == 'In cluster event' %} shared{% endif %}" data-state="{% if t.label == 'In cluster event' %}shared{% else %}{{ t.css }}{% endif %}" data-name="{{ t.node.name }}" href="{% url 'node_detail' t.node.name %}">
+          <span class="top">{{ t.node.name }}</span>
+          <small>{{ t.label }}{% if t.window and t.window.load_state %} · {{ t.window.load_state|lower }}{% endif %}</small>
+        </a>
+        {% endfor %}
+      </div>
+    </div>
     {% endfor %}
+    <p class="muted small" id="none" hidden>No node matches.</p>
   </div>
-  <p class="muted small" id="none" hidden>No node matches.</p>
-  <p class="muted small" style="margin-top:1rem;max-width:56rem">
+  <p class="panel-foot">
     {% if model %}Compared with what is normal for each node, learned by {{ model.label }} on {{ model.trained_at|date:"j M Y" }}.{% endif %}
     “Not scored” means the node is not being judged right now: it has no reliable recent readings, it is changing between idle and busy, or it has no learned baseline for its current state yet.</p>
   {% else %}
-  <div class="card empty"><strong>No nodes yet</strong>Nodes appear after the first check reaches Prometheus.</div>
+  <div class="empty"><strong>No nodes yet</strong>Nodes appear after the first check reaches Prometheus.</div>
   {% endif %}
 </section>
 <script>
@@ -144,6 +152,7 @@
       ok = ok && n.dataset.name.toLowerCase().indexOf(term) !== -1;
       n.hidden = !ok; if (ok) shown++;
     });
+    document.querySelectorAll('#nodes .node-group').forEach(function (g) { g.hidden = !g.querySelector('.node:not([hidden])'); });
     document.getElementById('none').hidden = shown !== 0;
   }
   q.addEventListener('input', apply);

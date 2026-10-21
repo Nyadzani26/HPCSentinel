@@ -1,23 +1,26 @@
 {% load sentinel %}
-{% if part != "past" %}{% for e in events|still_going %}
-<div class="notice event live" role="status">
-  <div>
-    <strong>Cluster-wide event</strong> · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once and it is <strong>still going</strong>.
-    <span class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} UTC).
-    This is shown as one event instead of {{ e.peak_nodes }} separate alerts, because that many nodes changing together points to something shared (power, cooling, network, the scheduler, or the cluster being switched on or off) rather than {{ e.peak_nodes }} faulty nodes.</span>
+{% if events %}
+<section class="card flush" aria-labelledby="events-h">
+  <h2 id="events-h">Cluster-wide events <span class="count quiet">{{ events|length }}</span></h2>
+  {% for e in events|still_going %}
+  <div class="row event live" role="status">
+    <h3>Cluster-wide event · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once and it is <strong>still going</strong>.</h3>
+    <p class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} UTC).
+      This is shown as one event instead of {{ e.peak_nodes }} separate alerts, because that many nodes changing together points to something shared (power, cooling, network, the scheduler, or the cluster being switched on or off) rather than {{ e.peak_nodes }} faulty nodes.</p>
+    <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
   </div>
-  <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
-</div>
-{% endfor %}{% endif %}
-{% if part != "active" %}{% with past=events|ended %}{% if past %}
-<details class="past-events">
-  <summary><span>{{ past|length }} cluster-wide event{{ past|length|pluralize }} in the last day</span> <span class="muted">Many nodes changing at once is shown as one event, not as one alert per node.</span></summary>
-  <ul>
-    {% for e in past %}
-    <li><span><strong>{{ e.peak_nodes }} of {{ e.peak_reliable }} nodes</strong> changed at once</span>
-      <span class="muted">{{ e.started_at|date:"H:i" }} UTC, lasted {{ e.lasted|span }}, {{ e.started_at|ago }}</span>
-      <a href="{% url 'event_detail' e.pk %}">Details</a></li>
-    {% endfor %}
-  </ul>
-</details>
-{% endif %}{% endwith %}{% endif %}
+  {% endfor %}
+  {% with past=events|ended %}{% if past %}
+  <details class="past-events">
+    <summary><span>{{ past|length }} earlier in the last day</span> <span class="muted">Many nodes changing at once is shown as one event, not as one alert per node.</span></summary>
+    <ul>
+      {% for e in past %}
+      <li><span><strong>{{ e.peak_nodes }} of {{ e.peak_reliable }} nodes</strong> changed at once</span>
+        <span class="muted">{{ e.started_at|date:"H:i" }} UTC, lasted {{ e.lasted|span }}, {{ e.started_at|ago }}</span>
+        <a href="{% url 'event_detail' e.pk %}">Details</a></li>
+      {% endfor %}
+    </ul>
+  </details>
+  {% endif %}{% endwith %}
+</section>
+{% endif %}

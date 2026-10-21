@@ -102,12 +102,19 @@ def home(request):
     order = {"unusual": 0, "review": 1, "unknown": 2, "normal": 3}
     held_back, level = _held_back_nodes(), _alert_level(last_cycle)
     tiles = []
-    for node in Node.objects.filter(is_active=True).order_by("name"):
+    for node in Node.objects.filter(is_active=True).select_related("group").order_by("name"):
         window = latest.get(node.pk)
         css, label = node_state(node, window, live_alerts.get(node.pk), _in_event(node, window, held_back, level))
         tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
     tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
+    by_group = {}
+    for t in tiles:                       # tiles keep their order inside a chassis: problems first, then by name
+        by_group.setdefault(t["node"].group.name if t["node"].group_id else "", []).append(t)
+    named = sorted(k for k in by_group if k)
+    tile_groups = [{"name": k, "tiles": by_group[k]} for k in named]
+    if "" in by_group:
+        tile_groups.append({"name": "Other nodes" if named else "", "tiles": by_group[""]})
     in_event = sum(1 for t in tiles if t["label"] == "In cluster event")       # unusual, but part of one shared event
     source_ok = bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER)
     model = ModelVersion.objects.order_by("-trained_at").first()
@@ -122,7 +129,7 @@ def home(request):
     return render(request, "fleet.html", {
         "watch": _watch(level) if tiles else None,
         "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(), "events": recent_events(),
-        "tiles": tiles, "counts": counts, "needs_attention": counts["unusual"] + counts["review"] - in_event, "in_event": in_event,
+        "tiles": tiles, "tile_groups": tile_groups, "counts": counts, "needs_attention": counts["unusual"] + counts["review"] - in_event, "in_event": in_event,
         "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
         "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
         "total": len(tiles),

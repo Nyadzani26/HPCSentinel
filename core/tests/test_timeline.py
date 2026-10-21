@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone as tz
 from django.test import TestCase
 from django.urls import reverse
 
-from core.models import ClusterEvent, CycleRun, Node, NodeWindow
+from core.context import asset_version
+from core.models import ClusterEvent, CycleRun, Node, NodeGroup, NodeWindow
 from core.services.timeline import fleet_timeline
 from core.tests.helpers import make_alert, make_config, make_node, make_user
 
@@ -90,6 +91,7 @@ class OverviewMapTests(TestCase):
         self.assertContains(page, 'id="watch-data"')
         self.assertContains(page, reverse("node_detail", args=["compute01"]))     # the map links each row to its node
         self.assertContains(page, "Last 24 hours")
+        self.assertContains(page, f"watch.js?v={asset_version()}")       # the map's script is fingerprinted like the stylesheet
 
     def test_the_headline_does_not_claim_normal_when_no_node_is_reporting(self):
         Node.objects.create(name="compute01", source_label="c1")
@@ -123,3 +125,33 @@ class OverviewPanelTests(TestCase):
         page = self.client.get(url)
         self.assertContains(page, "How unusual it was")
         self.assertContains(page, 'id="score"')
+
+
+class OverviewLayoutTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_user("viewer"))
+
+    def test_nodes_are_listed_by_chassis_with_each_chassis_named_once(self):
+        first, second = NodeGroup.objects.create(name="Chassis 1"), NodeGroup.objects.create(name="Chassis 2")
+        Node.objects.create(name="compute13", source_label="c13", group=second)
+        Node.objects.create(name="compute01", source_label="c01", group=first)
+        Node.objects.create(name="compute99", source_label="c99")
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertEqual(page.count('class="group-title"'), 3)
+        self.assertLess(page.index("Chassis 1 <small>"), page.index("Chassis 2 <small>"))
+        self.assertLess(page.index("Chassis 2 <small>"), page.index("Other nodes <small>"))
+
+    def test_without_chassis_there_is_one_list_and_no_headings(self):
+        Node.objects.create(name="compute01", source_label="c01")
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertNotIn('class="group-title"', page)
+        self.assertIn('data-name="compute01"', page)
+
+    def test_every_page_asks_for_the_current_stylesheet_and_shows_which_version_is_running(self):
+        """The stylesheet keeps its file name between deploys, so its address carries a fingerprint to defeat stale caches."""
+        version = asset_version()
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertIn(f"sentinel.css?v={version}", page)
+        self.assertIn(f"interface {version}", page)
+        self.client.logout()
+        self.assertContains(self.client.get(reverse("login")), f"sentinel.css?v={version}")
