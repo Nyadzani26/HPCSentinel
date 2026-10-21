@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import Alert, AlertAction, CycleRun, ExcludedPeriod, ExperimentEntry, Job, Node, NodeWindow, User
+from core.models import Alert, AlertAction, CycleRun, ExcludedPeriod, ExperimentEntry, Job, ModelVersion, Node, NodeWindow, User
 from core.tests.helpers import make_alert, make_config, make_model, make_node, make_user
 
 
@@ -47,6 +47,26 @@ class FleetScreenTests(TestCase):
     def test_node_detail_renders_without_data(self):  # FR-21
         make_node("compute01")
         self.assertContains(self.client.get(reverse("node_detail", args=["compute01"])), "No readings have been scored")
+
+    def test_unusual_metrics_respect_the_smallest_change_that_matters(self):  # FR-21: the page agrees with the detector
+        config = make_config()
+        config.content = {"detection": {"alert_threshold": 3.0, "min_effect": {"context_switch_rate": 2000}}}
+        config.save()
+        make_model(config)
+        model = ModelVersion.objects.get(label="m1")
+        model.baselines = {"baselines": {"compute01": {"IDLE": {"context_switch_rate__mean_5": [50.0, 2.0, 100]}}},
+                           "pooled": {"context_switch_rate__mean_5": 1.0}}
+        model.save()
+        node = make_node("compute01")
+        cyc = self.cycle()
+        NodeWindow.objects.create(node=node, cycle=cyc, window_end=timezone.now(), quality="RELIABLE", load_state="IDLE",
+                                  combined_score=1.0, features={"context_switch_rate__mean_5": 60.0})
+        shown = self.client.get(reverse("node_detail", args=["compute01"])).context["unusual"]
+        self.assertEqual(shown, [])  # 10 per second is far below the 2000 that would be worth waking up for
+        config.content["detection"]["min_effect"] = {}
+        config.save()
+        shown = self.client.get(reverse("node_detail", args=["compute01"])).context["unusual"]
+        self.assertEqual([m["name"] for m in shown], ["context_switch_rate"])  # without the floor it would be called unusual
 
     def test_unknown_node_is_404(self):
         self.assertEqual(self.client.get(reverse("node_detail", args=["nope"])).status_code, 404)

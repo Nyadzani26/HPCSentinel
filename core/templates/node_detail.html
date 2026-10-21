@@ -9,6 +9,7 @@
     <p class="muted">
       {% if latest %}Checked {{ latest.window_end|ago }}.
         {% if latest.load_state %}The node is {{ latest.load_state|lower }}, so it is compared with its own {{ latest.load_state|lower }} behaviour and with other nodes in the same state.{% endif %}
+        {% if state_label == "In cluster event" %}It is part of a cluster-wide event that is still going, so its own alert is held back. If it is still unusual when the event ends, it raises its own alert straight away.{% endif %}
       {% else %}No readings have been scored for this node yet.{% endif %}
     </p>
   </div>

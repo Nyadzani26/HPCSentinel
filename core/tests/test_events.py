@@ -137,6 +137,47 @@ class EventScreenTests(TestCase):
         self.assertIn("cluster-wide", self.client.get(reverse("home")).content.decode().lower())
 
 
+class EventNodeLabelTests(TestCase):
+    """A node whose alert is held back by a running event must not be labelled Normal beside a score that says otherwise."""
+
+    def setUp(self):
+        self.client.force_login(make_user("op"))
+        self.config = make_config()
+        self.config.content = {"detection": {"alert_threshold": 3.0}}
+        self.config.save()
+        self.cycle = CycleRun.objects.create(mode="LIVE", started_at=timezone.now(), source_reachable=True, config=self.config)
+        self.node = make_node("compute03")
+        self.quiet = make_node("compute04")
+
+    def window(self, node, score):
+        return NodeWindow.objects.create(node=node, cycle=self.cycle, window_end=timezone.now(), quality="RELIABLE",
+                                         load_state="IDLE", combined_score=score)
+
+    def event(self, ended=False):
+        now = timezone.now()
+        return ClusterEvent.objects.create(started_at=now, last_seen_at=now, ended_at=now if ended else None, peak_nodes=2,
+                                           peak_reliable=2, nodes=["compute03", "compute04"], causes={"cpu_busy": 2})
+
+    def test_a_node_in_a_running_event_says_so_on_its_page_and_tile(self):
+        self.window(self.node, 4.0)
+        self.event()
+        page = self.client.get(reverse("node_detail", args=["compute03"])).content.decode()
+        self.assertIn("In cluster event", page)
+        self.assertIn("its own alert is held back", page)
+        self.assertIn("In cluster event", self.client.get(reverse("home")).content.decode())
+
+    def test_a_node_in_the_event_that_is_back_to_normal_is_normal(self):
+        self.window(self.quiet, 1.0)
+        self.event()
+        self.assertContains(self.client.get(reverse("node_detail", args=["compute04"])), "Normal")
+
+    def test_after_the_event_has_ended_the_node_is_judged_on_its_own(self):
+        self.window(self.node, 4.0)
+        self.event(ended=True)
+        page = self.client.get(reverse("node_detail", args=["compute03"])).content.decode()
+        self.assertNotIn("In cluster event", page)
+
+
 class EventReportTests(TestCase):
     def test_reports_list_events_and_count_them_apart_from_alerts(self):
         from core.services import reports

@@ -51,15 +51,40 @@ def administrator_required(view):
     return wrapper
 
 
-def node_state(node, window, live_alert):
-    """Colour and label of a node tile (S-02): normal, unusual, under review or unreliable."""
+def node_state(node, window, live_alert, in_event=False):
+    """Colour and label of a node tile (S-02): normal, unusual, under review or unreliable.
+
+    `in_event` is true for a node that is unusual right now but whose own alert is held back because it is part of a
+    cluster-wide event that is still going (BR-13). Without it such a node would be labelled Normal beside a score
+    that says otherwise.
+    """
     if live_alert is not None:
         if live_alert.status == Alert.Status.ACKNOWLEDGED:
             return "review", "Under review"
         return "unusual", "Unusual"
     if window is None or window.quality != NodeWindow.Quality.RELIABLE:
         return "unknown", "No baseline" if window is not None and window.quality == "NOT_LEARNED" else "Unreliable"
+    if in_event:
+        return "unusual", "In cluster event"
     return "normal", "Normal"
+
+
+def _held_back_nodes():
+    """Names of the nodes involved in a cluster-wide event that is still going; their own alerts are held back."""
+    names = set()
+    for event in ClusterEvent.objects.filter(ended_at__isnull=True):
+        names.update(event.nodes)
+    return names
+
+
+def _in_event(node, window, held_back, threshold):
+    """True when the node belongs to a running event and its latest score is still above the alert level."""
+    return bool(window is not None and window.combined_score is not None and threshold is not None
+                and node.name in held_back and window.combined_score >= threshold)
+
+
+def _alert_level(cycle):
+    return ((cycle.config.content or {}).get("detection") or {}).get("alert_threshold") if cycle else None
 
 
 @login_required
@@ -73,10 +98,11 @@ def home(request):
             .order_by("window_end"):
         latest[w.node_id] = w
     order = {"unusual": 0, "review": 1, "unknown": 2, "normal": 3}
+    held_back, level = _held_back_nodes(), _alert_level(last_cycle)
     tiles = []
     for node in Node.objects.filter(is_active=True).order_by("name"):
         window = latest.get(node.pk)
-        css, label = node_state(node, window, live_alerts.get(node.pk))
+        css, label = node_state(node, window, live_alerts.get(node.pk), _in_event(node, window, held_back, level))
         tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
     tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
@@ -124,7 +150,8 @@ def node_detail(request, name):
     latest = windows[-1] if windows else None
     chart = [{"t": w.window_end.isoformat(), "v": round(w.combined_score, 3)} for w in windows if w.combined_score is not None]
     cycle = CycleRun.objects.filter(mode="LIVE").order_by("-started_at").select_related("config").first()
-    threshold = cycle.config.content.get("detection", {}).get("alert_threshold") if cycle else None
+    threshold = _alert_level(cycle)
+    effects = ((cycle.config.content or {}).get("detection") or {}).get("min_effect") or {} if cycle else {}
     state = latest.load_state if latest else None
     baseline, pooled = _baseline_lookup(node, state)
     series = {}
@@ -139,7 +166,9 @@ def node_detail(request, name):
         z, band = 0.0, None
         if ref is not None:
             median, scale = ref
-            floor = max(0.1 * pooled.get(feature, 0.0), 0.05 * abs(median), 1e-9)
+            # The same floor the detector applies, including the smallest change that matters for this metric, so this
+            # page never calls a metric unusual when the score ignored it.
+            floor = max(0.1 * pooled.get(feature, 0.0), 0.05 * abs(median), effects.get(metric, 0.0), 1e-9)
             width = 3 * max(scale, floor)
             band = [median - width, median + width] if width > 1e-6 else None
             z = abs(points[-1]["v"] - median) / max(scale, floor)
@@ -154,7 +183,7 @@ def node_detail(request, name):
     alerts = Alert.objects.filter(node=node, mode="LIVE").order_by("-opened_at")
     live_alert = alerts.filter(status__in=["OPEN", "ACKNOWLEDGED"]).first()
     markers = [a.opened_at.isoformat() for a in alerts if windows and a.opened_at >= windows[0].window_end]
-    css, label = node_state(node, latest, live_alert)
+    css, label = node_state(node, latest, live_alert, _in_event(node, latest, _held_back_nodes(), threshold))
     return render(request, "node_detail.html", {
         "node": node, "latest": latest, "chart": chart, "threshold": threshold, "state_css": css, "state_label": label,
         "unusual": unusual, "rest": rest, "alerts": alerts[:20], "markers": markers, "live_alert": live_alert,
