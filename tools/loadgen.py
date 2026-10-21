@@ -12,7 +12,7 @@ Standard library only, so it runs on any node with python3. It produces two kind
 Examples:
   python3 loadgen.py job  --seconds 5400
   python3 loadgen.py mem  --seconds 900 --mem-frac 0.6
-  python3 loadgen.py io   --seconds 900 --path /var/tmp
+  python3 loadgen.py io   --seconds 900 --path ~/.loadgen --duty 0.2
   python3 loadgen.py net-recv --seconds 900 --port 5201
   python3 loadgen.py net-send --seconds 900 --target compute02 --port 5201
 
@@ -87,8 +87,27 @@ def run_mem(seconds, mem_frac):
     hold_memory(deadline, size, touch_every=0.5)
 
 
-def run_io(seconds, path):
+def ensure_writable_dir(path):
+    """Make sure the folder exists and can be written, or stop with a clear message.
+
+    On a cluster whose root file system is read-only, a write to /var/tmp used to kill the writer without a word
+    and the job carried on as if nothing was wrong.
+    """
+    try:
+        os.makedirs(path, exist_ok=True)
+        probe = os.path.join(path, f".probe-{os.getpid()}")
+        with open(probe, "wb") as f:
+            f.write(b"x")
+        os.remove(probe)
+    except OSError as e:
+        raise SystemExit(f"cannot write to {path}: {e}")
+
+
+def run_io(seconds, path, duty=1.0):
     deadline = time.time() + seconds
+    if duty < 1.0:                      # write in bursts, resting between them, instead of continuously
+        io_duty_loop(deadline, duty, path)
+        return
     name = os.path.join(path, f"loadgen-{os.getpid()}.bin")
     chunk = os.urandom(1 << 20)
     try:
@@ -237,6 +256,7 @@ def run_workload(seconds, profile, peer, port, path, log):
     if mem_share:
         procs.append(mp.Process(target=hold_memory, args=(deadline, int(mem_total_bytes() * mem_share * rng.uniform(0.85, 1.1)), 1.0)))
     if io_duty:
+        ensure_writable_dir(path)
         procs.append(mp.Process(target=io_duty_loop, args=(deadline, io_duty, path)))
     if net_duty:
         if not peer:
@@ -260,7 +280,8 @@ def main():
     ap.add_argument("mode", choices=["job", "mem", "io", "net-recv", "net-send", "workload"])
     ap.add_argument("--seconds", type=int, required=True)
     ap.add_argument("--mem-frac", type=float, default=None)
-    ap.add_argument("--path", default="/var/tmp")
+    ap.add_argument("--path", default="/tmp")
+    ap.add_argument("--duty", type=float, default=1.0, help="io mode: share of the time spent writing (1 = continuously)")
     ap.add_argument("--target")
     ap.add_argument("--port", type=int, default=5201)
     ap.add_argument("--profile", choices=sorted(PROFILES), default="cpu")
@@ -275,7 +296,8 @@ def main():
     elif a.mode == "mem":
         run_mem(a.seconds, a.mem_frac if a.mem_frac is not None else 0.5)
     elif a.mode == "io":
-        run_io(a.seconds, a.path)
+        ensure_writable_dir(a.path)
+        run_io(a.seconds, a.path, a.duty)
     elif a.mode == "net-recv":
         run_net_recv(a.seconds, a.port)
     elif a.mode == "net-send":

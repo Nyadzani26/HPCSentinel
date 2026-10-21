@@ -20,15 +20,23 @@ log() {  # node type start end intensity
 case "$TYPE" in
   MEMORY)
     START="$(now)"
-    python3 "$HERE/loadgen.py" mem --seconds "$SECS" --mem-frac 0.5
-    END="$(now)"
-    log "$ME" MEMORY "$START" "$END" "50 percent of memory held and touched"
+    if python3 "$HERE/loadgen.py" mem --seconds "$SECS" --mem-frac 0.5; then
+      END="$(now)"
+      log "$ME" MEMORY "$START" "$END" "50 percent of memory held and touched"
+    else
+      echo "MEMORY fault failed on $ME; nothing logged" >&2
+    fi
     ;;
   IO)
+    # The root file system of the compute nodes is read-only, so the writes go to the shared home folder: heavy traffic to the
+    # head node, which is what an I/O problem is on a cluster built this way. 20% duty keeps the head node's link usable.
     START="$(now)"
-    python3 "$HERE/loadgen.py" io --seconds "$SECS" --path /var/tmp
-    END="$(now)"
-    log "$ME" IO "$START" "$END" "continuous 1 GiB writes with fsync"
+    if python3 "$HERE/loadgen.py" io --seconds "$SECS" --path "$HOME/.loadgen" --duty 0.2; then
+      END="$(now)"
+      log "$ME" IO "$START" "$END" "256 MiB writes with fsync to the shared home folder, 20% of the time"
+    else
+      echo "IO fault failed on $ME; nothing logged" >&2
+    fi
     ;;
   NETWORK)
     [ -n "$PEER" ] || { echo "network fault needs a peer node" >&2; exit 2; }
@@ -36,11 +44,15 @@ case "$TYPE" in
     RECV=$!
     sleep 5
     START="$(now)"
-    python3 "$HERE/loadgen.py" net-send --seconds "$SECS" --target "$PEER" --port 5201
-    END="$(now)"
-    kill "$RECV" 2>/dev/null; wait "$RECV" 2>/dev/null
-    log "$ME" NETWORK "$START" "$END" "bulk TCP stream to $PEER"
-    log "$PEER" NETWORK "$START" "$END" "bulk TCP stream from $ME"
+    if python3 "$HERE/loadgen.py" net-send --seconds "$SECS" --target "$PEER" --port 5201; then
+      END="$(now)"
+      kill "$RECV" 2>/dev/null; wait "$RECV" 2>/dev/null
+      log "$ME" NETWORK "$START" "$END" "bulk TCP stream to $PEER"
+      log "$PEER" NETWORK "$START" "$END" "bulk TCP stream from $ME"
+    else
+      kill "$RECV" 2>/dev/null; wait "$RECV" 2>/dev/null
+      echo "NETWORK fault failed on $ME; nothing logged" >&2
+    fi
     ;;
   *) echo "unknown fault type $TYPE" >&2; exit 2 ;;
 esac
