@@ -73,6 +73,10 @@ def validate(cfg: dict) -> dict:
     minimum = det.get("cluster_event_min_nodes", 5)
     if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 2:
         raise ConfigError("'cluster_event_min_nodes' in detection must be a whole number, at least 2.")
+    for key in ("load_busy_disk_ratio", "load_busy_network_bytes"):
+        value = det.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0):
+            raise ConfigError(f"'{key}' in detection must be a number above zero, or left out.")
     if not isinstance(det.get("self_clean", True), bool):
         raise ConfigError("'self_clean' in detection must be true or false.")
 

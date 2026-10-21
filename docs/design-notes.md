@@ -2,7 +2,7 @@
 
 ## Load-state stability and feature spans (replay of 18 hours, 8 synthetic nodes, two injected faults)
 
-Load state is inferred from CPU use alone, so a change of load changes every feature at once. A window that
+Load state is inferred from the node's own readings (CPU use, and optionally disk or network traffic, see below), so a change of load changes every feature at once. A window that
 straddles a change describes neither regime, and an unprotected detector alerts on every node at every job
 start and end. The platform therefore scores a node only after its load state has been steady for a
 "stability period", and the period must be at least as long as the longest feature span.
@@ -15,6 +15,18 @@ start and end. The platform therefore scores a node only after its load state ha
 
 Configuration validation rejects a stability period shorter than the longest span. Slower features (for
 example 60 minutes) remain available by setting both values to 60.
+
+## Input/output-heavy jobs (`load_busy_disk_ratio`, `load_busy_network_bytes`)
+
+On Ranger an input/output-heavy job (disk busy about 60% of the time) keeps the processor near 6%, which is under
+the 10% idle threshold. Judged on CPU alone, those nodes were classed IDLE, looked unusual beside the idle baseline
+and, in the first live test, joined a cluster-wide event along with the nodes of the job. They would also have
+contaminated the idle baseline and the idle forest, making a real disk fault harder to see later.
+
+Two optional detection settings count a node as busy when its median disk-busy ratio, or its median network traffic
+(receive plus send), reaches the stated level, as well as when its CPU does. Both are off unless set; the Ranger
+configuration sets `load_busy_disk_ratio: 0.2`. The limit that remains is a job that is quiet on every watched
+signal, which cannot be told from an idle node without scheduler data (FR-33, deferred).
 
 ## Cold start for rarely loaded nodes
 

@@ -110,6 +110,15 @@ class MinEffectConfigTests(SpanConfigTests):
             with self.assertRaises(ConfigError):
                 validate(self.cfg(min_effect=bad))
 
+    def test_the_extra_busy_signals_are_validated(self):
+        from core.config import ConfigError, validate
+        validate(self.cfg(load_busy_disk_ratio=0.2, load_busy_network_bytes=20_000_000))
+        validate(self.cfg())                                     # both are optional
+        for key in ("load_busy_disk_ratio", "load_busy_network_bytes"):
+            for bad in (0, -1, "x", True, [1]):
+                with self.assertRaises(ConfigError):
+                    validate(self.cfg(**{key: bad}))
+
     def test_the_shipped_configs_are_valid(self):
         from pathlib import Path
         from core.config import load_config

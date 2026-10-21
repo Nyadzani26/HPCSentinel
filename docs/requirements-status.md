@@ -1,6 +1,6 @@
 # Requirements status
 
-"Done" means implemented and covered by an automated test (`python manage.py test`, 208 tests).
+"Done" means implemented and covered by an automated test (`python manage.py test`, 216 tests).
 "Pending evidence" means implemented, but its verification needs a run on a real cluster
 (timings, browsers, a clean-host install) that has not been done yet. Anything marked Included in
 the report that is not "Done" or "Pending evidence" must be reported in report Section 3.4.
@@ -76,11 +76,11 @@ Every change is recorded here so the report can state it as a deliberate deviati
 | NFR-10 Configurability | Done | Metrics, mapping and detector settings from configuration; `test_config` |
 | NFR-11 Reproducibility | Done | Fixed seeds; `test_two_replays_of_the_same_period_give_the_same_alerts` |
 | NFR-12 Compatibility | Pending evidence | Browser check to be recorded |
-| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 208 tests |
+| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 216 tests |
 
 ## Known limitations
 
-* A node is not scored for up to 15 minutes after its load state changes (a stability rule, 15 minutes by default, equal to the longest feature span), so a fault that begins exactly at a job start is detected later. Because load state comes from CPU use alone, a fault that itself drives CPU above 10% on an idle node (for example a CPU hog) looks like a legitimate job and cannot be told apart without scheduler data (FR-33, deferred).
-* Load state comes from the node's own CPU use, not from the job scheduler (FR-33 deferred).
+* A node is not scored for up to 15 minutes after its load state changes (a stability rule, 15 minutes by default, equal to the longest feature span), so a fault that begins exactly at a job start is detected later. Because load state comes from the node's own readings (CPU use, plus disk traffic where `load_busy_disk_ratio` is set, as on Ranger), a fault that itself drives CPU above 10% on an idle node (for example a CPU hog) looks like a legitimate job and cannot be told apart without scheduler data (FR-33, deferred). A job that is quiet on every watched signal is read as idle for the same reason.
+* Load state comes from the node's own readings (CPU, optionally disk or network), not from the job scheduler (FR-33 deferred).
 * Hardware sensors are not used (FR-32 deferred). The platform sends no notifications (FR-31 deferred).
 * Assignment of nodes to groups is made in the Django administration site; one default group is used otherwise.

@@ -72,7 +72,7 @@
       <button type="button" class="chip" data-f="all" aria-pressed="true">All<span class="n">{{ total }}</span></button>
       <button type="button" class="chip" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ attention|length }}</span></button>
       <button type="button" class="chip" data-f="normal" aria-pressed="false">Normal<span class="n">{{ counts.normal }}</span></button>
-      <button type="button" class="chip" data-f="unknown" aria-pressed="false">No data<span class="n">{{ counts.unknown }}</span></button>
+      <button type="button" class="chip" data-f="unknown" aria-pressed="false">Not scored<span class="n">{{ counts.unknown }}</span></button>
     </div>
   </div>
   <div class="nodes" id="nodes">
@@ -86,7 +86,7 @@
   <p class="muted small" id="none" hidden>No node matches.</p>
   <p class="muted small" style="margin-top:.9rem">
     {% if model %}Compared with what is normal for each node, learned by {{ model.label }} on {{ model.trained_at|date:"j M Y" }}.{% endif %}
-    “No data” means the node has no reliable recent readings or no learned baseline yet.</p>
+    “Not scored” means the node is not being judged right now: it has no reliable recent readings, it is changing between idle and busy, or it has no learned baseline for its current state yet.</p>
   {% else %}
   <div class="card empty"><strong>No nodes yet</strong>Nodes appear after the first check reaches Prometheus.</div>
   {% endif %}
