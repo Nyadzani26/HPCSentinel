@@ -43,7 +43,7 @@ echo "background load on compute25-48 from $T0"
 
 single 10  MEMORY  compute03     # idle node
 single 10  MEMORY  compute30     # loaded node
-pair   40  compute07 compute08   # idle pair
+pair   40  compute06 compute07   # idle pair (compute08 is down on Ranger; pick two nodes that sinfo shows idle)
 pair   40  compute33 compute34   # loaded pair
 single 70  IO      compute12     # idle node
 single 70  IO      compute40     # loaded node
