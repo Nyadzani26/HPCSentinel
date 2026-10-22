@@ -35,10 +35,21 @@
         </div>
       </form>
     </div>
-    <div class="card">
-      <h2>Is the data good enough?</h2>
-      <p class="muted">Checks that Prometheus has each metric for every node, and warns when every node reports the same value, which usually means it is not measured per node.</p>
-      <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="btn secondary">Check data now</button></form>
+    <div style="display:grid;gap:var(--gap);align-content:start">
+      <div class="card">
+        <h2>Is the data good enough?</h2>
+        <p class="muted">Checks that Prometheus has each metric for every node, and warns when every node reports the same value, which usually means it is not measured per node.</p>
+        <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="btn secondary">Check data now</button></form>
+      </div>
+      <div class="card">
+        <h2>Chassis</h2>
+        <p class="muted">Say which nodes sit in which chassis and the Overview shows them in that order. This only arranges the screen. It never changes how a node is scored.</p>
+        <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="chassis">
+          {{ chassis_form.non_field_errors }}
+          <label for="id_layout">Layout<span class="hint">One chassis per line, for example <code>Chassis 1: compute01-compute12</code>. Separate single nodes with commas. Saving replaces the old layout, and a node that is not listed has no chassis.</span>{{ chassis_form.layout }}{{ chassis_form.layout.errors }}</label>
+          <div><button type="submit" class="btn">Save chassis</button></div>
+        </form>
+      </div>
     </div>
   </div>
   {% if readiness %}

@@ -2,7 +2,8 @@
 from django import forms
 from django.utils import timezone
 
-from core.models import Alert, ExcludedPeriod, ModelVersion
+from core.models import Alert, ExcludedPeriod, ModelVersion, Node
+from core.services import chassis as chassis_service
 
 DT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
 
@@ -72,6 +73,19 @@ class ExcludedPeriodForm(forms.ModelForm):
         if data.get("start_at") and data.get("end_at") and data["end_at"] <= data["start_at"]:
             raise forms.ValidationError("The end of the period must be after its start.")
         return data
+
+
+class ChassisForm(forms.Form):
+    """The chassis layout as text (see core/services/chassis.py). It is only checked against the nodes the platform knows."""
+
+    layout = forms.CharField(required=False, widget=forms.Textarea(attrs={
+        "rows": 6, "spellcheck": "false", "placeholder": "Chassis 1: compute01-compute12\nChassis 2: compute13-compute24"}))
+
+    def clean_layout(self):
+        try:
+            return chassis_service.parse(self.cleaned_data["layout"], Node.objects.values_list("name", flat=True))
+        except chassis_service.LayoutError as exc:
+            raise forms.ValidationError(str(exc))
 
 
 class ExperimentUploadForm(forms.Form):

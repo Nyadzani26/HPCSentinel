@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from core.context import asset_version
-from core.models import ClusterEvent, CycleRun, Node, NodeGroup, NodeWindow
+from core.models import Chassis, ClusterEvent, CycleRun, Node, NodeGroup, NodeWindow
 from core.services.timeline import fleet_timeline
 from core.tests.helpers import make_alert, make_config, make_node, make_user
 
@@ -132,14 +132,23 @@ class OverviewLayoutTests(TestCase):
         self.client.force_login(make_user("viewer"))
 
     def test_nodes_are_listed_by_chassis_with_each_chassis_named_once(self):
-        first, second = NodeGroup.objects.create(name="Chassis 1"), NodeGroup.objects.create(name="Chassis 2")
-        Node.objects.create(name="compute13", source_label="c13", group=second)
-        Node.objects.create(name="compute01", source_label="c01", group=first)
+        first, second = Chassis.objects.create(name="Chassis 1"), Chassis.objects.create(name="Chassis 2")
+        Node.objects.create(name="compute13", source_label="c13", chassis=second)
+        Node.objects.create(name="compute01", source_label="c01", chassis=first)
         Node.objects.create(name="compute99", source_label="c99")
         page = self.client.get(reverse("home")).content.decode()
         self.assertEqual(page.count('class="group-title"'), 3)
         self.assertLess(page.index("Chassis 1 <small>"), page.index("Chassis 2 <small>"))
         self.assertLess(page.index("Chassis 2 <small>"), page.index("Other nodes <small>"))
+
+    def test_a_peer_group_is_not_a_chassis_and_does_not_split_the_list(self):
+        """Peer groups decide how a node is scored, so they must not decide how the page is arranged."""
+        group = NodeGroup.objects.create(name="gpu nodes")
+        Node.objects.create(name="compute01", source_label="c01", group=group)
+        Node.objects.create(name="compute02", source_label="c02", group=group)
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertNotIn('class="group-title"', page)
+        self.assertNotIn("gpu nodes", page)
 
     def test_without_chassis_there_is_one_list_and_no_headings(self):
         Node.objects.create(name="compute01", source_label="c01")

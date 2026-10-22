@@ -26,6 +26,7 @@ from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
 from core.services import settings_store
 from core.services import autolearn
+from core.services import chassis as chassis_service
 from core.services import timeline as timeline_service
 from core.services import reports as reports_service
 from core.services.review import PermissionDenied, ReviewService
@@ -102,19 +103,19 @@ def home(request):
     order = {"unusual": 0, "review": 1, "unknown": 2, "normal": 3}
     held_back, level = _held_back_nodes(), _alert_level(last_cycle)
     tiles = []
-    for node in Node.objects.filter(is_active=True).select_related("group").order_by("name"):
+    for node in Node.objects.filter(is_active=True).select_related("chassis").order_by("name"):
         window = latest.get(node.pk)
         css, label = node_state(node, window, live_alerts.get(node.pk), _in_event(node, window, held_back, level))
         tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
     tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
-    by_group = {}
+    by_chassis = {}
     for t in tiles:                       # tiles keep their order inside a chassis: problems first, then by name
-        by_group.setdefault(t["node"].group.name if t["node"].group_id else "", []).append(t)
-    named = sorted(k for k in by_group if k)
-    tile_groups = [{"name": k, "tiles": by_group[k]} for k in named]
-    if "" in by_group:
-        tile_groups.append({"name": "Other nodes" if named else "", "tiles": by_group[""]})
+        by_chassis.setdefault(t["node"].chassis.name if t["node"].chassis_id else "", []).append(t)
+    named = sorted((k for k in by_chassis if k), key=chassis_service.natural_key)
+    tile_groups = [{"name": k, "tiles": by_chassis[k]} for k in named]
+    if "" in by_chassis:
+        tile_groups.append({"name": "Other nodes" if named else "", "tiles": by_chassis[""]})
     in_event = sum(1 for t in tiles if t["label"] == "In cluster event")       # unusual, but part of one shared event
     source_ok = bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER)
     model = ModelVersion.objects.order_by("-trained_at").first()
@@ -495,7 +496,7 @@ def controls(request):
     forms_ = {"train": forms.TrainForm(initial=train_initial),
               "replay": forms.ModelPeriodForm(prefix="replay", initial=test_initial),
               "evaluate": forms.ModelPeriodForm(prefix="eval", initial=test_initial), "excluded": forms.ExcludedPeriodForm(),
-              "upload": forms.ExperimentUploadForm()}
+              "upload": forms.ExperimentUploadForm(), "chassis": forms.ChassisForm(initial={"layout": chassis_service.layout_text()})}
     try:
         base_cfg = _file_config()
     except ConfigError as exc:
@@ -560,6 +561,14 @@ def controls(request):
                 period.save()
                 messages.success(request, "Excluded period saved. It is left out the next time a model is trained.")
                 return redirect("controls")
+        elif action == "chassis":
+            form = forms_["chassis"] = forms.ChassisForm(request.POST)
+            if form.is_valid():
+                layout = form.cleaned_data["layout"]
+                placed = chassis_service.apply(layout)
+                messages.success(request, f"Chassis saved: {placed} node{'s' if placed != 1 else ''} placed in {len(layout)} chassis."
+                                 if layout else "Chassis layout cleared. The Overview shows one list of nodes.")
+                return redirect("controls")
         elif action == "upload":
             form = forms_["upload"] = forms.ExperimentUploadForm(request.POST, request.FILES)
             if form.is_valid():
@@ -580,7 +589,7 @@ def controls(request):
         "jobs": Job.objects.order_by("-requested_at")[:10],
         "autorefresh": request.method == "GET" and Job.objects.filter(status__in=["PENDING", "RUNNING"]).exists(),
         "learning": _learning(cfg),
-        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "learn_now": "models",
+        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "chassis": "source", "learn_now": "models",
                        "train": "advanced", "replay": "advanced", "evaluate": "advanced", "upload": "advanced",
                        "excluded": "advanced"}.get(request.POST.get("action"), "source"),
         "models": ModelVersion.objects.order_by("-trained_at")[:10],

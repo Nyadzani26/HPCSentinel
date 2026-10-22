@@ -87,7 +87,7 @@
       var y = layout[ri].y, active = hover && hover.row === ri;
       if (grouped && r._header !== undefined) {
         ctx.globalAlpha = 1; ctx.fillStyle = colors.muted; ctx.textAlign = 'left'; ctx.font = '600 11px "Public Sans", system-ui, sans-serif';
-        ctx.fillText(r.group || 'Nodes', 0, r._header + GROUP / 2 + 1);
+        ctx.fillText(r.group || 'Other nodes', 0, r._header + GROUP / 2 + 1);
         ctx.font = '10px "Public Sans", system-ui, sans-serif';
       }
       ctx.globalAlpha = 1; ctx.textAlign = 'right'; ctx.fillStyle = active ? colors.ink : colors.muted;

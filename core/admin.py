@@ -11,7 +11,7 @@ class PlatformUserAdmin(UserAdmin):
 
 
 for model in (
-    models.ConfigVersion, models.NodeGroup, models.Node, models.Job, models.CycleRun, models.ModelVersion,
+    models.ConfigVersion, models.NodeGroup, models.Chassis, models.Node, models.Job, models.CycleRun, models.ModelVersion,
     models.Alert, models.AlertAction, models.NodeWindow, models.ExcludedPeriod, models.ExperimentEntry,
     models.EvaluationRun,
 ):

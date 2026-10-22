@@ -13,6 +13,7 @@ from datetime import datetime, timezone as dt_tz
 from django.utils import timezone
 
 from core.models import ClusterEvent, Node, NodeWindow
+from core.services.chassis import natural_key
 
 BUCKET_MINUTES = 15
 HOURS = 24
@@ -45,7 +46,7 @@ def fleet_timeline(level, now=None, hours=HOURS, bucket_minutes=BUCKET_MINUTES):
                     cell[1] = True
 
     rows = []
-    for node in Node.objects.filter(is_active=True).select_related("group"):
+    for node in Node.objects.filter(is_active=True).select_related("chassis"):
         cells, scores = [], []
         for column in range(columns):
             cell = seen.get((node.pk, column))
@@ -55,8 +56,8 @@ def fleet_timeline(level, now=None, hours=HOURS, bucket_minutes=BUCKET_MINUTES):
                 continue
             cells.append("u" if cell[1] else "n" if cell[0] else "q")
             scores.append(min(int(round(cell[2] * 10)), 999))
-        rows.append({"node": node.name, "group": node.group.name if node.group else "", "cells": cells, "v": scores})
-    rows.sort(key=lambda r: (r["group"], r["node"]))
+        rows.append({"node": node.name, "group": node.chassis.name if node.chassis else "", "cells": cells, "v": scores})
+    rows.sort(key=lambda r: (r["group"] == "", natural_key(r["group"]), r["node"]))      # nodes in no chassis come last, as on the list
 
     shown = []
     for event in ClusterEvent.objects.filter(started_at__lt=end).order_by("started_at"):

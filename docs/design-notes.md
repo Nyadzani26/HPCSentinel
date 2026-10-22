@@ -258,7 +258,7 @@ that has a title has a tinted title band.
 - The side panel is three panels: Needs attention (rows with a count), Cluster-wide events (a running event on top, the
   earlier ones folded away) and Recovered alerts.
 - The map's legend moved to a footer strip, and the node list became a panel with its search and filters in a bar
-  and its footnote in a footer. The list is split by chassis, as the map is, so a chassis reads the same in both. A
+  and its footnote in a footer. The list is split by chassis, as the map is (see "Chassis layout" below), so a chassis reads the same in both. A
   chassis is hidden while a search matches none of its nodes.
 - Alerts is one panel: filters, bulk actions and the table share a single card.
 - Headings that used to float above a table now sit inside it (Settings, Users, node history).
@@ -272,6 +272,28 @@ that has a title has a tinted title band.
 against old CSS looks unorganised. Their addresses now carry a fingerprint of their content
 (`sentinel.css?v=abc1234` and `watch.js?v=abc1234`, `core/context.py`), which changes whenever either file does, and the same value is shown
 in the footer ("interface abc1234") so a person can tell which version they are looking at.
+
+## Chassis layout (22 Oct 2026)
+
+**Why.** The Overview can arrange nodes by chassis, but the platform had no way to learn which node sits in which chassis,
+so a live installation showed one long list. The first attempt reused `NodeGroup`, which is wrong: a node's group is its
+peer group, so it decides which nodes it is compared with and which pooled model scores it. Putting nodes into chassis
+groups would have changed the scoring and made the evaluation results (9 of 10 found, median 285 s) stale.
+
+**What.** A separate `Chassis` model and `Node.chassis` (migration 0008), used only for display. The administrator writes
+the layout as text in the Chassis box on the Settings page, one chassis per line:
+
+    Chassis 1: compute01-compute12
+    Chassis 2: compute13-compute24, compute30
+
+`core/services/chassis.py` parses it (ranges keep the zero padding; single names are separated by commas), checks every
+name against the nodes the platform knows, refuses a node placed twice, and replaces the whole layout in one transaction.
+A mistake is explained in plain words and changes nothing. The box shows the saved layout back in the same form.
+The map and the node list both group by chassis, numbered chassis first (2 before 10), then nodes in no chassis last.
+`NodeGroup` is no longer used for display, and a test checks that saving a layout leaves every node's group unchanged.
+
+**Later.** Chassis temperatures and fan modules belong to a chassis rather than a node (see requirements-status). They can
+attach to this model.
 
 ## Time zone (22 Oct 2026)
 

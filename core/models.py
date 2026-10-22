@@ -79,10 +79,24 @@ class NodeGroup(models.Model):
         return self.name
 
 
+class Chassis(models.Model):
+    """A physical enclosure. It only arranges nodes on screen; it never changes how a node is scored (a NodeGroup does that)."""
+
+    name = models.CharField(max_length=60, unique=True)
+
+    class Meta:
+        verbose_name_plural = "chassis"
+
+    def __str__(self):
+        return self.name
+
+
 class Node(models.Model):
     name = models.CharField(max_length=100, unique=True)
     source_label = models.CharField(max_length=200, help_text="Identifier under which Prometheus reports the node.")
     group = models.ForeignKey(NodeGroup, null=True, blank=True, on_delete=models.SET_NULL, related_name="nodes")
+    chassis = models.ForeignKey(Chassis, null=True, blank=True, on_delete=models.SET_NULL, related_name="nodes",
+                                help_text="Where the node sits, for the Overview. Display only.")
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
