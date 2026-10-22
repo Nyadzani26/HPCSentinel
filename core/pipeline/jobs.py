@@ -170,7 +170,7 @@ def relearn(cfg: dict, client, now=None) -> ModelVersion:
     """
     now = parse_time(now) if now else timezone.now()
     days = int(cfg["detection"].get("relearn_days", 14))
-    label = "auto-" + now.strftime("%Y%m%d-%H%M")
+    label = "auto-" + timezone.localtime(now).strftime("%Y%m%d-%H%M")      # named in the time people see on screen
     return train(cfg, client, now - timedelta(days=days), now, label=label, user=get_system_user(),
                  exclusions=suspect_spans(now, days))
 

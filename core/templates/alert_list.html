@@ -40,7 +40,7 @@
     <td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
     <td><a href="{% url 'alert_detail' a.pk %}" class="headline">{% alert_headline a %}</a>
       <div class="muted small">{% if a.recurrences %}Came back {{ a.recurrences }} time{{ a.recurrences|pluralize }} · {% endif %}{% if a.resolved_reason == "no_data" %}Ended when the node stopped reporting{% elif a.status == "RESOLVED" or a.status == "CLOSED" and a.recovered_at %}Ended by itself when the node was normal again{% endif %}</div></td>
-    <td class="when" title="Opened {{ a.opened_at|date:'Y-m-d H:i' }} UTC">{{ a.opened_at|ago }}
+    <td class="when" title="Opened {{ a.opened_at|date:'Y-m-d H:i' }} {{ tz_label }}">{{ a.opened_at|ago }}
       <div class="muted small">{% if a.is_active %}still going, {{ a.lasted|span }} so far{% else %}lasted {{ a.lasted|span }}{% endif %}</div></td>
     <td style="text-align:right;white-space:nowrap">
       {% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>

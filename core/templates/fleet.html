@@ -87,9 +87,9 @@
     <div class="card watch">
       <div class="watch-head">
         <div><h2 id="watch-h">Last 24 hours</h2>
-          <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes (UTC). Click a node to open it.</p></div>
+          <p class="muted small" style="margin:0">Each row is a node and each column is 15 minutes ({{ tz_label }}). Click a node to open it.</p></div>
       </div>
-      <div class="watch-body" id="watch">
+      <div class="watch-body" id="watch" data-tz="{{ tz_name }}" data-tz-label="{{ tz_label }}">
         <canvas role="img" aria-label="The last 24 hours for every node. The node list below shows the current state of each node."></canvas>
         <div class="watch-tip" role="tooltip"></div>
       </div>

@@ -104,7 +104,16 @@ SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
 
 LANGUAGE_CODE = "en-gb"
-TIME_ZONE = "UTC"
+# The time zone people see: every time on screen, the report days and the date fields on the Settings page. What the
+# platform stores and computes is always UTC. Change it with TIME_ZONE in .env (any name from the IANA list).
+TIME_ZONE = os.environ.get("TIME_ZONE", "").strip() or "Africa/Johannesburg"
+try:
+    from zoneinfo import ZoneInfo
+    ZoneInfo(TIME_ZONE)
+except Exception:                                    # a typo or missing zone data must not stop the monitoring
+    import sys
+    print(f"WARNING: unknown time zone '{TIME_ZONE}' (TIME_ZONE); showing UTC instead.", file=sys.stderr)
+    TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 

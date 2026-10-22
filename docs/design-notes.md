@@ -147,7 +147,8 @@ cluster do this week, and can I trust the alerts?" without reading an alert list
 automatically, so nobody has to remember to make them.
 
 **How.** `core/services/reports.py` computes a report from what the platform has already stored and never touches
-Prometheus. Periods are whole UTC days, Monday-to-Monday weeks and calendar months. The worker calls
+Prometheus. Periods are whole days, Monday-to-Monday weeks and calendar months in the display time zone (see
+"Time zone" below). The worker calls
 `generate_due` every hour and at start-up. It writes every completed period that has data and no report, so a
 stopped worker catches up and nothing is duplicated (one report per kind and period is a database constraint).
 A report is stored as frozen numbers, so it says what was known at the time. An Administrator can rebuild it to
@@ -239,7 +240,7 @@ the review reminder. On a narrow screen the panel moves above the map. When ther
 left out and the map takes the full width.
 
 - The map rows are 10 px with 2 px between them, close to square cells, and the node names stay legible.
-- When most of the day has no data the map says "Nothing recorded before 13:45 UTC" instead of leaving a field of dots
+- When most of the day has no data the map says "Nothing recorded before 13:45 SAST" instead of leaving a field of dots
   unexplained.
 - On a phone the map shows the last 12 hours, not 24, because 96 columns become hairlines at 320 px, and a scrolled
   canvas hides the node names.
@@ -271,6 +272,32 @@ that has a title has a tinted title band.
 against old CSS looks unorganised. Their addresses now carry a fingerprint of their content
 (`sentinel.css?v=abc1234` and `watch.js?v=abc1234`, `core/context.py`), which changes whenever either file does, and the same value is shown
 in the footer ("interface abc1234") so a person can tell which version they are looking at.
+
+## Time zone (22 Oct 2026)
+
+**Why.** Every screen showed UTC, two hours behind South Africa, so the administrator had to add two hours to every
+alert, event and chart before it meant anything.
+
+**What changed.** The time zone people see is the `TIME_ZONE` setting. It defaults to `Africa/Johannesburg`
+(SAST) and can be changed in `.env`; an unknown name falls back to UTC with a warning instead of stopping the platform.
+Everything else follows from it:
+
+- Templates convert on display (Django's `date` filter) and write the zone's short name (`{{ tz_label }}`, from
+  `core/context.py`) instead of "UTC".
+- The map and the line charts draw in that zone whatever the browser's own zone is. The page hands the zone name to the
+  scripts (`data-tz` on the map, `core/templates/_chart.html` for the charts) and they use `Intl.DateTimeFormat`.
+  Checked in a browser set to New York time.
+- Report days run from local midnight to local midnight, so "Wednesday" is Wednesday as lived. Saved reports written for
+  UTC days would overlap the new days, so `generate_due` removes any saved report that does not start at local midnight
+  (`drop_misaligned`, tested) and writes it again from the stored readings. A report that already fits is never touched.
+- The date fields on the Settings page are filled in, labelled and read in the same zone. The report CSV headings say
+  which zone their times are in (`opened_sast`).
+- New model labels (`auto-20261022-1135`) are named in local time. Existing labels keep their UTC-based names.
+
+**What did not change.** Storage, the one-minute grid, the quarter-hour map columns and the worker schedule are UTC. So
+are times in an experiment-log CSV that carry no zone (the cluster's `tools/fault_run.sh` writes UTC), and the
+`inventory` command, which says UTC in its output. Both are stated in the places they appear, because reading a CSV in
+local time would shift every evidence file that was already recorded.
 
 ## Experiment log: intensity text
 

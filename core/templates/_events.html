@@ -5,7 +5,7 @@
   {% for e in events|still_going %}
   <div class="row event live" role="status">
     <h3>Cluster-wide event · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once and it is <strong>still going</strong>.</h3>
-    <p class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} UTC).
+    <p class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} {{ tz_label }}).
       This is shown as one event instead of {{ e.peak_nodes }} separate alerts, because that many nodes changing together points to something shared (power, cooling, network, the scheduler, or the cluster being switched on or off) rather than {{ e.peak_nodes }} faulty nodes.</p>
     <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
   </div>
@@ -16,7 +16,7 @@
     <ul>
       {% for e in past %}
       <li><span><strong>{{ e.peak_nodes }} of {{ e.peak_reliable }} nodes</strong> changed at once</span>
-        <span class="muted">{{ e.started_at|date:"H:i" }} UTC, lasted {{ e.lasted|span }}, {{ e.started_at|ago }}</span>
+        <span class="muted">{{ e.started_at|date:"H:i" }} {{ tz_label }}, lasted {{ e.lasted|span }}, {{ e.started_at|ago }}</span>
         <a href="{% url 'event_detail' e.pk %}">Details</a></li>
       {% endfor %}
     </ul>

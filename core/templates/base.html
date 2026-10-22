@@ -29,7 +29,7 @@
       {% endif %}
     </nav>
     <div class="bar-end">
-      <div class="live" title="Last cycle: {{ nav_last_cycle|date:'Y-m-d H:i' }} UTC">
+      <div class="live" title="Last cycle: {{ nav_last_cycle|date:'Y-m-d H:i' }} {{ tz_label }}">
         <span class="dot {{ nav_status.0 }}"></span>
         <span><b>{{ nav_status.1 }}</b>{% if nav_last_cycle %}<span class="when"> &nbsp;Updated {{ nav_last_cycle|ago }}</span>{% endif %}</span>
       </div>

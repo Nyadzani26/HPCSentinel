@@ -32,6 +32,8 @@ Open `http://<host>:8000/` and sign in. Check the worker with `docker compose lo
 
 Notes:
 
+* `TIME_ZONE` is the time zone shown on screen and used for report days. It is `Africa/Johannesburg` (SAST) unless you set
+  another name from the IANA list in `.env`; everything stored is UTC either way.
 * `PROMETHEUS_URL` is the address of Prometheus **as seen from inside the containers**. For a
   Prometheus running on the same host, `http://host.docker.internal:9090` works (the Compose file
   maps that name to the host). If the host firewall blocks the Docker bridge, allow it to reach

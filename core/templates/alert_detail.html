@@ -6,11 +6,11 @@
 <div class="head">
   <div>
     <h1>{% alert_headline alert %}</h1>
-    <p class="muted">Started {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} UTC)
+    <p class="muted">Started {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} {{ tz_label }})
       {% if alert.is_active %}· <strong style="color:var(--ink)">still going</strong>, {{ alert.lasted|span }} so far{% else %}· lasted {{ alert.lasted|span }}{% endif %}
       {% if alert.recurrences %}· came back {{ alert.recurrences }} time{{ alert.recurrences|pluralize }}{% endif %}
       {% if alert.status == "RESOLVED" or alert.recovered_at %}<br>{% if alert.resolved_reason == "no_data" %}Ended {{ alert.recovered_at|ago }} because the node stopped reporting.{% else %}Ended by itself {{ alert.recovered_at|ago }}: the node was normal again.{% endif %}{% endif %}
-      {% if alert.closed_at %}<br>Reviewed {{ alert.closed_at|date:"j M Y, H:i" }} UTC.{% endif %}</p>
+      {% if alert.closed_at %}<br>Reviewed {{ alert.closed_at|date:"j M Y, H:i" }} {{ tz_label }}.{% endif %}</p>
   </div>
   <div style="display:flex;gap:.5rem;align-items:center"><span class="pill {{ alert.status }}">{{ alert.get_status_display }}</span>{% if alert.outcome %}<span class="pill {{ alert.outcome }}">{{ alert.get_outcome_display }}</span>{% endif %}</div>
 </div>
@@ -68,7 +68,7 @@
       <details style="margin-top:.7rem"><summary>Technical details</summary>
         <p class="muted small" style="margin-top:.5rem">Scores are in units of typical spread: 0 is normal, and the alert level is {{ threshold }}. The combined score weighs the node against its own baseline, against its peers, and the Isolation Forest model {{ alert.model.label }}.</p>
         <p class="small">Peak {{ alert.peak_score|floatformat:2 }} · baseline {{ alert.explanation.scores.baseline|default_if_none:"–" }} · peers {{ alert.explanation.scores.peer|default_if_none:"–" }} · model {{ alert.explanation.scores.model|default_if_none:"–" }} · combined {{ alert.explanation.scores.combined|default_if_none:"–" }} when it opened.</p>
-        <table><thead><tr><th>Check (UTC)</th><th class="num">Baseline</th><th class="num">Peers</th><th class="num">Model</th><th class="num">Combined</th></tr></thead><tbody>
+        <table><thead><tr><th>Check ({{ tz_label }})</th><th class="num">Baseline</th><th class="num">Peers</th><th class="num">Model</th><th class="num">Combined</th></tr></thead><tbody>
         {% for w in windows %}<tr><td>{{ w.window_end|date:"H:i" }}</td><td class="num">{{ w.baseline_score|floatformat:2 }}</td><td class="num">{{ w.peer_score|floatformat:2 }}</td><td class="num">{{ w.model_score|floatformat:2 }}</td><td class="num">{{ w.combined_score|floatformat:2 }}</td></tr>{% endfor %}
         </tbody></table>
       </details>
@@ -108,7 +108,7 @@
       {% if actions %}
       <ul class="timeline">
         {% for a in actions %}<li>{% if a.user.username != "system" %}<strong>{{ a.user.username }}</strong>{% else %}<strong>HPCSentinel</strong>{% endif %} {% if a.action == "ACKNOWLEDGE" %}said they are looking into it{% elif a.action == "CLOSE" %}marked it as {{ a.get_outcome_display|lower }}{% elif a.action == "REOPEN" %}reopened it{% elif a.action == "RECOVER" or a.action == "RECUR" %}<span class="muted">(automatic)</span>{% else %}added a note{% endif %}
-          <div class="muted small" title="{{ a.created_at|date:'Y-m-d H:i' }} UTC">{{ a.created_at|ago }}</div>{% if a.note %}<div>{{ a.note }}</div>{% endif %}</li>{% endfor %}
+          <div class="muted small" title="{{ a.created_at|date:'Y-m-d H:i' }} {{ tz_label }}">{{ a.created_at|ago }}</div>{% if a.note %}<div>{{ a.note }}</div>{% endif %}</li>{% endfor %}
       </ul>
       {% else %}<p class="muted">Nothing yet. Actions and notes appear here with who and when.</p>{% endif %}
       {% if alert.status != "CLOSED" %}

@@ -5,8 +5,8 @@
 <div class="crumbs"><a href="{% url 'alert_list' %}">Alerts</a> / Cluster-wide event</div>
 <div class="head"><div>
   <h1>{{ event.peak_nodes }} of {{ event.peak_reliable }} nodes changed at once</h1>
-  <p class="muted">Started {{ event.started_at|ago }} ({{ event.started_at|date:"j M Y, H:i" }} UTC) ·
-    {% if event.is_active %}<strong style="color:var(--ink)">still going</strong>, {{ event.lasted|span }} so far{% else %}lasted {{ event.lasted|span }}, ended {{ event.ended_at|date:"H:i" }} UTC{% endif %}</p>
+  <p class="muted">Started {{ event.started_at|ago }} ({{ event.started_at|date:"j M Y, H:i" }} {{ tz_label }}) ·
+    {% if event.is_active %}<strong style="color:var(--ink)">still going</strong>, {{ event.lasted|span }} so far{% else %}lasted {{ event.lasted|span }}, ended {{ event.ended_at|date:"H:i" }} {{ tz_label }}{% endif %}</p>
 </div></div>
 <div class="two">
   <div>

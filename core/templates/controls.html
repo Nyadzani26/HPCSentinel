@@ -93,8 +93,8 @@
     <p class="muted" style="max-width:48rem">Normally the platform chooses its own learning data. Use this only to learn from a period you know was healthy, for example to reproduce a result for a report.</p>
     <div class="card" style="max-width:30rem"><form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
       {{ train_form.non_field_errors }}
-      <label for="id_start">From (UTC){{ train_form.start }}{{ train_form.start.errors }}</label>
-      <label for="id_end">To (UTC){{ train_form.end }}{{ train_form.end.errors }}</label>
+      <label for="id_start">From ({{ tz_label }}){{ train_form.start }}{{ train_form.start.errors }}</label>
+      <label for="id_end">To ({{ tz_label }}){{ train_form.end }}{{ train_form.end.errors }}</label>
       <label for="id_label">Name<span class="hint">Optional.</span>{{ train_form.label }}</label>
       <button type="submit" class="btn">Learn from this period</button></form></div>
   </details>
@@ -105,8 +105,8 @@
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="replay">
         {{ replay_form.non_field_errors }}
         <label for="id_replay-model">Model{{ replay_form.model }}{{ replay_form.model.errors }}</label>
-        <label for="id_replay-start">From (UTC){{ replay_form.start }}{{ replay_form.start.errors }}</label>
-        <label for="id_replay-end">To (UTC){{ replay_form.end }}{{ replay_form.end.errors }}</label>
+        <label for="id_replay-start">From ({{ tz_label }}){{ replay_form.start }}{{ replay_form.start.errors }}</label>
+        <label for="id_replay-end">To ({{ tz_label }}){{ replay_form.end }}{{ replay_form.end.errors }}</label>
         <button type="submit" class="btn">Replay</button></form></div>
     <div class="card"><h2>2. Log the problems you caused</h2>
       <p class="muted small">Upload a CSV with the columns <code>node, anomaly_type, start, end</code> and optionally <code>intensity</code>. Types: cpu, memory, io, network, other. A bad row rejects the whole file.</p>
@@ -118,8 +118,8 @@
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="evaluate">
         {{ evaluate_form.non_field_errors }}
         <label for="id_eval-model">Model{{ evaluate_form.model }}{{ evaluate_form.model.errors }}</label>
-        <label for="id_eval-start">From (UTC){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
-        <label for="id_eval-end">To (UTC){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
+        <label for="id_eval-start">From ({{ tz_label }}){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
+        <label for="id_eval-end">To ({{ tz_label }}){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
         <button type="submit" class="btn">Evaluate</button></form></div>
   </div>
   <section><div class="card flush"><h2>Results</h2><table>
@@ -137,12 +137,12 @@
     <div class="card"><h2>Ignore a period</h2>
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="excluded">
         {{ excluded_form.non_field_errors }}
-        <label for="id_start_at">From (UTC){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
-        <label for="id_end_at">To (UTC){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
+        <label for="id_start_at">From ({{ tz_label }}){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
+        <label for="id_end_at">To ({{ tz_label }}){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
         <label for="id_reason">Reason{{ excluded_form.reason }}{{ excluded_form.reason.errors }}</label>
         <button type="submit" class="btn">Ignore this period</button></form></div>
     <div class="card"><h2>Ignored periods</h2>
-      {% if periods %}<table><thead><tr><th>Period (UTC)</th><th>Reason</th><th></th></tr></thead><tbody>
+      {% if periods %}<table><thead><tr><th>Period ({{ tz_label }})</th><th>Reason</th><th></th></tr></thead><tbody>
       {% for p in periods %}<tr><td class="small">{{ p.start_at|date:"j M H:i" }} – {{ p.end_at|date:"j M H:i" }}</td><td>{{ p.reason }}</td>
         <td style="text-align:right"><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="btn secondary small" type="submit">Remove</button></form></td></tr>{% endfor %}
       </tbody></table>{% else %}<div class="empty"><strong>None yet</strong>Add a period before you run stress tests.</div>{% endif %}</div>

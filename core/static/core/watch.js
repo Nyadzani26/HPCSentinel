@@ -21,9 +21,19 @@
                muted: css('--muted'), panel: css('--panel'), rule: css('--rule-2') };
   }
   function pad(n) { return (n < 10 ? '0' : '') + n; }
-  function clock(ms) { var d = new Date(ms); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()); }
+  // Times are drawn in the zone the server shows everywhere else (South African time on Ranger), not in the browser's own.
+  var ZONE = host.getAttribute('data-tz') || 'UTC', ZONE_LABEL = host.getAttribute('data-tz-label') || ZONE, zoneFmt = null;
+  try {
+    zoneFmt = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hourCycle: 'h23', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric' });
+  } catch (err) { zoneFmt = null; ZONE_LABEL = 'UTC'; }
+  function parts(ms) {
+    if (!zoneFmt) { var u = new Date(ms); return { day: u.getUTCDate(), month: u.getUTCMonth() + 1, hour: u.getUTCHours(), minute: u.getUTCMinutes() }; }
+    var o = {}; zoneFmt.formatToParts(new Date(ms)).forEach(function (p) { o[p.type] = +p.value; });
+    return { day: o.day, month: o.month, hour: o.hour % 24, minute: o.minute };
+  }
+  function clock(ms) { var p = parts(ms); return pad(p.hour) + ':' + pad(p.minute); }
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  function dayLabel(ms) { var d = new Date(ms); return d.getUTCDate() + ' ' + MONTHS[d.getUTCMonth()]; }
+  function dayLabel(ms) { var p = parts(ms); return p.day + ' ' + MONTHS[p.month - 1]; }
 
   function measure() {
     var avail = host.clientWidth - 2 * 20;
@@ -55,10 +65,10 @@
     // time axis: a label every three hours, the date when a new day starts
     ctx.fillStyle = colors.muted; ctx.textAlign = 'left';
     for (var i = FROM; i < N; i++) {
-      var t = data.start + i * step, d = new Date(t);
-      if (d.getUTCMinutes() === 0 && d.getUTCHours() % 3 === 0 && colX(i) < W - RIGHT - 46) {    // leave room for "now"
-        var label = d.getUTCHours() === 0 ? dayLabel(t) : clock(t);
-        ctx.globalAlpha = 1; ctx.fillStyle = d.getUTCHours() === 0 ? colors.ink : colors.muted;
+      var t = data.start + i * step, d = parts(t);
+      if (d.minute === 0 && d.hour % 3 === 0 && colX(i) < W - RIGHT - 46) {    // leave room for "now"
+        var label = d.hour === 0 ? dayLabel(t) : clock(t);
+        ctx.globalAlpha = 1; ctx.fillStyle = d.hour === 0 ? colors.ink : colors.muted;
         ctx.fillText(label, colX(i), AXIS / 2);
         ctx.globalAlpha = .35; ctx.fillStyle = colors.muted; ctx.fillRect(Math.round(colX(i)), AXIS + 1, 1, 3);
       }
@@ -100,7 +110,7 @@
     if (first > FROM + 12 && first < N) {
       ctx.globalAlpha = 1; ctx.textAlign = 'left'; ctx.font = '12px "Public Sans", system-ui, sans-serif'; ctx.fillStyle = colors.muted;
       ctx.lineWidth = 6; ctx.strokeStyle = colors.panel; ctx.lineJoin = 'round';
-      var msg = 'Nothing recorded before ' + clock(data.start + first * step) + ' UTC';
+      var msg = 'Nothing recorded before ' + clock(data.start + first * step) + ' ' + ZONE_LABEL;
       var mx = LEFT + 8, my = grouped && rows[0]._header !== undefined ? rows[0]._header + GROUP / 2 + 1 : TOP + 8;
       ctx.strokeText(msg, mx, my); ctx.fillText(msg, mx, my);
       ctx.font = '10px "Public Sans", system-ui, sans-serif';
@@ -116,7 +126,7 @@
 
   var WORDS = { n: 'Normal', u: 'Unusual', e: 'Part of a cluster event', q: 'Not scored', '.': 'No data' };
   function describe(r, c) {
-    var ch = r.cells.charAt(c), from = data.start + c * step, text = r.node + ' · ' + clock(from) + '–' + clock(from + step) + ' UTC · ' + WORDS[ch];
+    var ch = r.cells.charAt(c), from = data.start + c * step, text = r.node + ' · ' + clock(from) + '–' + clock(from + step) + ' ' + ZONE_LABEL + ' · ' + WORDS[ch];
     if (ch === 'n' || ch === 'u') text += ' (score ' + (r.v[c] / 10).toFixed(1) + ')';
     return text;
   }
@@ -145,7 +155,7 @@
     canvas.style.cursor = 'pointer';
     if (hit.event) {
       var e = hit.event; hover = null; draw();
-      place(ev, 'Cluster event · ' + e.nodes + ' of ' + e.of + ' nodes · ' + clock(e.s) + (e.e ? '–' + clock(e.e) : ' onwards') + ' UTC');
+      place(ev, 'Cluster event · ' + e.nodes + ' of ' + e.of + ' nodes · ' + clock(e.s) + (e.e ? '–' + clock(e.e) : ' onwards') + ' ' + ZONE_LABEL);
       return;
     }
     hover = hit; draw(); place(ev, describe(rows[hit.row], hit.col));

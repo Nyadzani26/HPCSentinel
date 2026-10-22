@@ -1,6 +1,6 @@
 # Requirements status
 
-"Done" means implemented and covered by an automated test (`python manage.py test`, 232 tests).
+"Done" means implemented and covered by an automated test (`python manage.py test`, 247 tests).
 "Pending evidence" means implemented, but its verification needs a run on a real cluster
 (timings, browsers, a clean-host install) that has not been done yet. Anything marked Included in
 the report that is not "Done" or "Pending evidence" must be reported in report Section 3.4.
@@ -76,7 +76,7 @@ Every change is recorded here so the report can state it as a deliberate deviati
 | NFR-10 Configurability | Done | Metrics, mapping and detector settings from configuration; `test_config` |
 | NFR-11 Reproducibility | Done | Fixed seeds; `test_two_replays_of_the_same_period_give_the_same_alerts` |
 | NFR-12 Compatibility | Pending evidence | Browser check to be recorded |
-| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 232 tests |
+| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 247 tests |
 
 ## Known limitations
 

@@ -1,18 +1,21 @@
-"""Daily, weekly and monthly reports (stage 3)."""
+"""Daily, weekly and monthly reports (stage 3). Days are South African days (settings.TIME_ZONE), not UTC days."""
 import csv
 import io
 from datetime import datetime, timedelta, timezone as tz
 from unittest import mock
+from zoneinfo import ZoneInfo
 
 from django.test import TestCase
 from django.urls import reverse
 
+from core.localtime import local
 from core.models import Alert, CycleRun, ModelVersion, NodeWindow, Report, User
 from core.services import reports
 from core.tests.helpers import make_alert, make_config, make_model, make_node, make_user
 
-NOW = datetime(2026, 10, 21, 14, 30, tzinfo=tz.utc)        # a Wednesday
-DAY = datetime(2026, 10, 20, tzinfo=tz.utc)                # Tuesday: the finished day under test
+SAST = ZoneInfo("Africa/Johannesburg")
+NOW = datetime(2026, 10, 21, 14, 30, tzinfo=tz.utc)        # a Wednesday, 16:30 in South Africa
+DAY = datetime(2026, 10, 20, tzinfo=SAST)                  # Tuesday: the finished day under test, midnight to midnight local time
 
 
 def cycle(at, reachable=True):
@@ -36,21 +39,29 @@ def alert(node, opened, minutes=20, status="RESOLVED", outcome=None, metric="cpu
 
 class PeriodTests(TestCase):
     def test_periods_start_on_day_monday_and_month_boundaries(self):
-        self.assertEqual(reports.floor_period("daily", NOW), datetime(2026, 10, 21, tzinfo=tz.utc))
-        self.assertEqual(reports.floor_period("weekly", NOW), datetime(2026, 10, 19, tzinfo=tz.utc))
-        self.assertEqual(reports.floor_period("monthly", NOW), datetime(2026, 10, 1, tzinfo=tz.utc))
+        self.assertEqual(reports.floor_period("daily", NOW), datetime(2026, 10, 21, tzinfo=SAST))
+        self.assertEqual(reports.floor_period("weekly", NOW), datetime(2026, 10, 19, tzinfo=SAST))
+        self.assertEqual(reports.floor_period("monthly", NOW), datetime(2026, 10, 1, tzinfo=SAST))
+
+    def test_a_day_starts_at_south_african_midnight_which_is_22_00_the_evening_before_in_utc(self):
+        start = reports.floor_period("daily", NOW)
+        self.assertEqual(start.astimezone(tz.utc), datetime(2026, 10, 20, 22, 0, tzinfo=tz.utc))
+        # 00:30 on Wednesday in South Africa is still Tuesday in UTC, but it belongs to Wednesday's report
+        early = datetime(2026, 10, 20, 22, 30, tzinfo=tz.utc)
+        self.assertEqual(reports.floor_period("daily", early), start)
+        self.assertEqual(reports.label_for("daily", reports.floor_period("daily", early)), "Wednesday 21 October 2026")
 
     def test_next_and_previous_periods_agree(self):
         for kind in ("daily", "weekly", "monthly"):
             start = reports.floor_period(kind, NOW)
             self.assertEqual(reports.previous_period(kind, reports.next_period(kind, start)), start)
-        self.assertEqual(reports.next_period("monthly", datetime(2026, 12, 1, tzinfo=tz.utc)), datetime(2027, 1, 1, tzinfo=tz.utc))
-        self.assertEqual(reports.previous_period("monthly", datetime(2026, 1, 1, tzinfo=tz.utc)), datetime(2025, 12, 1, tzinfo=tz.utc))
+        self.assertEqual(reports.next_period("monthly", datetime(2026, 12, 1, tzinfo=SAST)), datetime(2027, 1, 1, tzinfo=SAST))
+        self.assertEqual(reports.previous_period("monthly", datetime(2026, 1, 1, tzinfo=SAST)), datetime(2025, 12, 1, tzinfo=SAST))
 
     def test_labels_are_readable(self):
         self.assertEqual(reports.label_for("daily", DAY), "Tuesday 20 October 2026")
-        self.assertEqual(reports.label_for("weekly", datetime(2026, 10, 19, tzinfo=tz.utc)), "Week of 19 October to 25 October 2026")
-        self.assertEqual(reports.label_for("monthly", datetime(2026, 10, 1, tzinfo=tz.utc)), "October 2026")
+        self.assertEqual(reports.label_for("weekly", datetime(2026, 10, 19, tzinfo=SAST)), "Week of 19 October to 25 October 2026")
+        self.assertEqual(reports.label_for("monthly", datetime(2026, 10, 1, tzinfo=SAST)), "October 2026")
 
 
 class BuildTests(TestCase):
@@ -124,10 +135,23 @@ class BuildTests(TestCase):
         self.assertIn("did not receive usable data", d["summary"][0])
         self.assertIn("No alerts were raised", " ".join(d["summary"]))
 
+    def test_a_report_read_back_from_the_database_keeps_its_south_african_day(self):
+        start_utc = DAY.astimezone(tz.utc)                                   # how the database hands it back
+        d = reports.build("daily", start_utc, start_utc + timedelta(days=1), NOW)
+        self.assertEqual(d["label"], "Tuesday 20 October 2026")
+        self.assertEqual(d["start"], "2026-10-20T00:00:00+02:00")
+
+    def test_times_written_into_a_report_are_local(self):
+        ModelVersion.objects.create(label="auto-y", trained_at=datetime(2026, 10, 20, 8, 0, tzinfo=tz.utc), train_start=DAY,
+                                    train_end=DAY + timedelta(hours=9), baselines={"origin": "auto"}, file_path="y", config=make_config())
+        d = reports.build("daily", DAY, DAY + timedelta(days=1), NOW)
+        self.assertEqual(d["learning"]["models"][0]["trained_label"], "2026-10-20 10:00")     # 08:00 UTC
+
     def test_a_period_still_in_progress_is_cut_at_now_and_marked(self):
-        d = reports.build("daily", datetime(2026, 10, 21, tzinfo=tz.utc), datetime(2026, 10, 22, tzinfo=tz.utc), NOW)
+        d = reports.build("daily", datetime(2026, 10, 21, tzinfo=SAST), datetime(2026, 10, 22, tzinfo=SAST), NOW)
         self.assertTrue(d["partial"])
-        self.assertEqual(d["coverage"]["hours_in_period"], 14.5)
+        self.assertEqual(d["coverage"]["hours_in_period"], 16.5)           # midnight to 16:30 South African time
+        self.assertEqual(d["until_label"], "2026-10-21 16:30")
         self.assertIn("so far", " ".join(d["summary"]))
 
 
@@ -139,7 +163,7 @@ class GenerationTests(TestCase):
         cycle(datetime(2026, 10, 19, 10, tzinfo=tz.utc))
         cycle(datetime(2026, 10, 20, 10, tzinfo=tz.utc))
         first = reports.generate_due(NOW)
-        kinds = sorted((r.kind, r.period_start.date().isoformat()) for r in first)
+        kinds = sorted((r.kind, local(r.period_start).date().isoformat()) for r in first)
         self.assertEqual(kinds, [("daily", "2026-10-19"), ("daily", "2026-10-20")])   # the week and month have not finished
         self.assertEqual(reports.generate_due(NOW), [])
         self.assertEqual(Report.objects.count(), 2)
@@ -147,7 +171,7 @@ class GenerationTests(TestCase):
     def test_a_week_and_a_month_are_written_once_they_have_finished(self):
         cycle(datetime(2026, 10, 14, 10, tzinfo=tz.utc))
         later = datetime(2026, 11, 2, 6, tzinfo=tz.utc)                                # a Monday, after October ended
-        kinds = {(r.kind, r.period_start.date().isoformat()) for r in reports.generate_due(later)}
+        kinds = {(r.kind, local(r.period_start).date().isoformat()) for r in reports.generate_due(later)}
         self.assertIn(("weekly", "2026-10-12"), kinds)
         self.assertIn(("monthly", "2026-10-01"), kinds)
         self.assertNotIn(("monthly", "2026-11-01"), kinds)
@@ -155,7 +179,7 @@ class GenerationTests(TestCase):
     def test_days_with_no_data_get_no_report(self):
         cycle(datetime(2026, 10, 14, 10, tzinfo=tz.utc))
         cycle(datetime(2026, 10, 20, 10, tzinfo=tz.utc))
-        days = {r.period_start.date().isoformat() for r in reports.generate_due(NOW) if r.kind == "daily"}
+        days = {local(r.period_start).date().isoformat() for r in reports.generate_due(NOW) if r.kind == "daily"}
         self.assertEqual(days, {"2026-10-14", "2026-10-20"})
 
     def test_a_saved_report_is_frozen_until_rebuilt(self):
@@ -169,6 +193,30 @@ class GenerationTests(TestCase):
         reports.generate("daily", DAY, NOW, replace=True)
         report.refresh_from_db()
         self.assertEqual(report.data["alerts"]["reviewed"], 1)
+
+
+class OldReportTests(TestCase):
+    """Reports written when days were counted in UTC are replaced, not left to overlap the local days."""
+
+    def test_a_report_that_starts_at_utc_midnight_is_removed_and_a_local_one_is_kept(self):
+        old = Report.objects.create(kind="daily", period_start=datetime(2026, 10, 20, tzinfo=tz.utc), period_end=datetime(2026, 10, 21, tzinfo=tz.utc),
+                                    generated_at=NOW, data={})
+        keep = Report.objects.create(kind="daily", period_start=DAY, period_end=DAY + timedelta(days=1), generated_at=NOW, data={})
+        weekly_old = Report.objects.create(kind="weekly", period_start=datetime(2026, 10, 19, tzinfo=tz.utc), period_end=datetime(2026, 10, 26, tzinfo=tz.utc),
+                                           generated_at=NOW, data={})
+        self.assertEqual(reports.drop_misaligned(), 2)
+        self.assertEqual(list(Report.objects.all()), [keep])
+        self.assertFalse(Report.objects.filter(pk__in=[old.pk, weekly_old.pk]).exists())
+        self.assertEqual(reports.drop_misaligned(), 0)                       # nothing more to do the second time
+
+    def test_the_worker_replaces_them_with_reports_for_local_days(self):
+        cycle(datetime(2026, 10, 20, 10, tzinfo=tz.utc))
+        Report.objects.create(kind="daily", period_start=datetime(2026, 10, 20, tzinfo=tz.utc), period_end=datetime(2026, 10, 21, tzinfo=tz.utc),
+                              generated_at=NOW, data={})
+        made = reports.generate_due(NOW)
+        starts = {r.period_start.astimezone(tz.utc) for r in Report.objects.filter(kind="daily")}
+        self.assertEqual(starts, {datetime(2026, 10, 19, 22, 0, tzinfo=tz.utc)})        # 20 October, South African time
+        self.assertEqual([r.kind for r in made], ["daily"])
 
 
 class ReportScreenTests(TestCase):
@@ -215,8 +263,8 @@ class ReportScreenTests(TestCase):
         self.assertEqual(response["Content-Type"], "text/csv; charset=utf-8")
         self.assertIn("attachment", response["Content-Disposition"])
         rows = list(csv.reader(io.StringIO(response.content.decode())))
-        self.assertEqual(rows[0][:3], ["alert", "node", "opened_utc"])
-        self.assertEqual((rows[1][1], rows[1][5], rows[1][8]), ("compute01", "25.0", "1"))
+        self.assertEqual(rows[0][:3], ["alert", "node", "opened_sast"])        # the heading says which time zone the times are in
+        self.assertEqual((rows[1][1], rows[1][2], rows[1][5], rows[1][8]), ("compute01", "2026-10-20 09:00", "25.0", "1"))
         nodes = list(csv.reader(io.StringIO(self.client.get(reverse("report_csv", args=[self.report.pk, "nodes"])).content.decode())))
         self.assertEqual(nodes[1][:2], ["compute01", "1"])
         self.assertEqual(self.client.get(f"/reports/{self.report.pk}/secrets.csv").status_code, 404)

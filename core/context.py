@@ -1,4 +1,5 @@
-"""Values every page needs: the alert badge, the data-source status, the colour of the page edge and the asset version."""
+"""Values every page needs: the alert badge, the data-source status, the colour of the page edge, the asset version
+and the time zone the times are shown in."""
 import hashlib
 from datetime import timedelta
 from functools import lru_cache
@@ -6,6 +7,7 @@ from pathlib import Path
 
 from django.utils import timezone
 
+from core.localtime import zone_label, zone_name
 from core.models import Alert, ClusterEvent, CycleRun, ModelVersion
 
 STALE_AFTER = timedelta(minutes=10)
@@ -30,7 +32,7 @@ def asset_version():
 
 def sentinel(request):
     if not getattr(request, "user", None) or not request.user.is_authenticated:
-        return {"asset_v": asset_version()}
+        return {"asset_v": asset_version(), "tz_name": zone_name(), "tz_label": zone_label()}
     last = CycleRun.objects.filter(mode="LIVE").order_by("-started_at").first()
     if last is None:
         status = ("idle", "Waiting for the first cycle")
@@ -41,7 +43,7 @@ def sentinel(request):
     else:
         status = ("ok", "Monitoring active")
     return {
-        "asset_v": asset_version(),
+        "asset_v": asset_version(), "tz_name": zone_name(), "tz_label": zone_label(),
         "nav_alert_count": Alert.objects.filter(mode="LIVE", status__in=Alert.ACTIVE).count(),
         "nav_review_count": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(),
         "nav_status": status,

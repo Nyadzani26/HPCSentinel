@@ -488,7 +488,7 @@ def _queue(request, job_type, form, params, message=None):
 @administrator_required
 def controls(request):
     """Model and experiment controls: train, replay, evaluate, excluded periods, experiment log (FR-16, FR-28 to FR-30)."""
-    today = timezone.now().replace(minute=0, second=0, microsecond=0)
+    today = timezone.localtime().replace(minute=0, second=0, microsecond=0)      # the fields are read in the same zone
     fmt_ = lambda d: d.strftime("%Y-%m-%dT%H:%M")  # noqa: E731
     train_initial = {"start": fmt_(today - timedelta(days=16)), "end": fmt_(today - timedelta(days=2))}
     test_initial = {"start": fmt_(today - timedelta(days=2)), "end": fmt_(today)}

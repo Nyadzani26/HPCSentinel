@@ -75,7 +75,7 @@ class ExcludedPeriodForm(forms.ModelForm):
 
 
 class ExperimentUploadForm(forms.Form):
-    file = forms.FileField(help_text="CSV with columns node, anomaly_type, start, end, intensity (optional).")
+    file = forms.FileField(help_text="CSV with columns node, anomaly_type, start, end, intensity (optional). A time with no zone is read as UTC, which is what tools/fault_run.sh writes; for local time add the offset, for example 2026-10-21T14:30:00+02:00.")
 
 
 # One choice instead of two numbers: how unusual a node must be, and for how long, before it is worth an alert.

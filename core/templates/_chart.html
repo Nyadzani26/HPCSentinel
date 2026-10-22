@@ -13,8 +13,18 @@ window.Sentinel = (function () {
       default: return Number(v.toPrecision(3)).toString();
     }
   }
-  function clock(t) { var d = new Date(t); return d.toISOString().slice(11, 16); }
-  function day(t) { return new Date(t).toISOString().slice(0, 10) + ' ' + clock(t) + ' UTC'; }
+  // Times are drawn in the zone the server shows everywhere else (South African time on Ranger), not in the browser's own.
+  var ZONE = '{{ tz_name|escapejs }}' || 'UTC', ZONE_LABEL = '{{ tz_label|escapejs }}' || ZONE, zoneFmt = null;
+  try {
+    zoneFmt = new Intl.DateTimeFormat('en-GB', { timeZone: ZONE, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  } catch (err) { zoneFmt = null; ZONE_LABEL = 'UTC'; }
+  function parts(t) {
+    if (!zoneFmt) { var u = new Date(t).toISOString(); return { year: u.slice(0, 4), month: u.slice(5, 7), day: u.slice(8, 10), hour: u.slice(11, 13), minute: u.slice(14, 16) }; }
+    var o = {}; zoneFmt.formatToParts(new Date(t)).forEach(function (p) { o[p.type] = p.value; });
+    return { year: o.year, month: o.month, day: o.day, hour: o.hour === '24' ? '00' : o.hour, minute: o.minute };
+  }
+  function clock(t) { var p = parts(t); return p.hour + ':' + p.minute; }
+  function day(t) { var p = parts(t); return p.year + '-' + p.month + '-' + p.day + ' ' + clock(t) + ' ' + ZONE_LABEL; }
   var css = getComputedStyle(document.documentElement);
   function color(n, d) { return css.getPropertyValue(n).trim() || d; }
 
@@ -52,7 +62,7 @@ window.Sentinel = (function () {
     s += '<polyline fill="none" stroke="' + accent + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" points="' + path + '"/>';
     s += '<text x="' + (L + 2) + '" y="' + (T + 8) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + fmt(dhi, kind) + '</text>';
     if (!flat) s += '<text x="' + (L + 2) + '" y="' + (H - B - 4) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + fmt(o.floor !== undefined ? Math.min(dlo, o.floor) : dlo, kind) + '</text>';
-    s += '<text x="' + L + '" y="' + (H - 5) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t0) + '</text><text x="' + (W - R) + '" y="' + (H - 5) + '" text-anchor="end" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t1) + ' UTC</text>';
+    s += '<text x="' + L + '" y="' + (H - 5) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t0) + '</text><text x="' + (W - R) + '" y="' + (H - 5) + '" text-anchor="end" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t1) + ' ' + ZONE_LABEL + '</text>';
     s += '<line id="cx" y1="' + T + '" y2="' + (H - B) + '" stroke="' + muted + '" opacity="0"/><circle id="cd" r="3.5" fill="' + accent + '" opacity="0"/>';
     host.style.position = 'relative';
     host.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + (o.label || 'chart') + '">' + s + '</svg><div class="tip"></div>');

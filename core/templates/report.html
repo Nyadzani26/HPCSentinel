@@ -7,8 +7,8 @@
 <div class="head">
   <div>
     <h1>{{ kind_label }} report</h1>
-    <p class="muted" style="font-size:1.05rem">{{ d.label }}{% if d.partial %} · <strong style="color:var(--ink)">so far</strong>, up to {{ d.until_label }} UTC. The saved report is written when the period ends.{% endif %}</p>
-    {% if report %}<p class="muted small">Generated {{ report.generated_at|date:"j M Y, H:i" }} UTC. Reviews made after that time are not included{% if user.is_administrator %} until you rebuild it{% endif %}.</p>{% endif %}
+    <p class="muted" style="font-size:1.05rem">{{ d.label }}{% if d.partial %} · <strong style="color:var(--ink)">so far</strong>, up to {{ d.until_label }} {{ tz_label }}. The saved report is written when the period ends.{% endif %}</p>
+    {% if report %}<p class="muted small">Generated {{ report.generated_at|date:"j M Y, H:i" }} {{ tz_label }}. Reviews made after that time are not included{% if user.is_administrator %} until you rebuild it{% endif %}.</p>{% endif %}
   </div>
   <div class="noprint" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
     <button type="button" class="btn secondary" onclick="window.print()">Print or save as PDF</button>
@@ -51,7 +51,7 @@
 
 {% if d.events %}
 <section class="card" style="margin-top:1.2rem"><h2>Cluster-wide events</h2>
-  <table><thead><tr><th>Started (UTC)</th><th class="num">Nodes at the peak</th><th class="num">Minutes</th><th>Main cause</th></tr></thead><tbody>
+  <table><thead><tr><th>Started ({{ tz_label }})</th><th class="num">Nodes at the peak</th><th class="num">Minutes</th><th>Main cause</th></tr></thead><tbody>
   {% for e in d.events %}<tr><td><a href="{% url 'event_detail' e.pk %}">{{ e.started }}</a></td><td class="num">{{ e.peak_nodes }} of {{ e.peak_reliable }}</td><td class="num">{{ e.minutes|floatformat:"-1" }}{% if e.active %} (going){% endif %}</td><td>{{ e.cause|default:"–" }}</td></tr>{% endfor %}
   </tbody></table>
   <p class="muted small" style="margin-top:.6rem">Many nodes changing together are reported once, as an event, instead of as one alert per node.</p>
@@ -70,7 +70,7 @@
   </section>
   <section class="card"><h2>What the platform learned</h2>
     {% if d.learning.models %}
-    <table><thead><tr><th>Model</th><th>Learned (UTC)</th><th>How</th></tr></thead><tbody>
+    <table><thead><tr><th>Model</th><th>Learned ({{ tz_label }})</th><th>How</th></tr></thead><tbody>
     {% for m in d.learning.models %}<tr><td><strong>{{ m.label }}</strong></td><td class="small">{{ m.trained_label|default:m.trained_at }}</td><td>{% if m.origin == "auto" %}Automatically{% else %}Manually{% endif %}{% if m.hours_per_node %}, from {{ m.hours_per_node|floatformat:"-1" }} h per node{% endif %}</td></tr>{% endfor %}
     </tbody></table>
     {% else %}<p class="muted">No new model in this period.</p>{% endif %}
