@@ -3,6 +3,8 @@
 Views only read data, call a service and render. Changes to alerts go through
 ReviewService (BR-11); long work is requested by writing a Job for the worker (D-3).
 """
+import os
+import re
 from datetime import datetime, timedelta
 from functools import wraps
 
@@ -90,9 +92,17 @@ def _alert_level(cycle):
     return ((cycle.config.content or {}).get("detection") or {}).get("alert_threshold") if cycle else None
 
 
-@login_required
-def home(request):
-    """S-02 overview: what needs attention first, then every node (FR-20)."""
+MAP_CLASS = {"unusual": "bad", "review": "warn", "unknown": "off", "normal": ""}
+
+
+def _short(name):
+    """What goes on a map tile: the number at the end of the node name (compute07 -> 07), or the end of the name."""
+    m = re.search(r"(\d+)$", name)
+    return m.group(1) if m else name[-3:]
+
+
+def _fleet(request=None):
+    """Everything the Overview and the Nodes page know about the fleet right now (FR-20): one tile per node."""
     last_cycle = CycleRun.objects.filter(mode=CycleRun.Mode.LIVE).order_by("-started_at").first()
     live_alerts = {a.node_id: a for a in Alert.objects.filter(mode="LIVE", status__in=Alert.ACTIVE)
                    .select_related("node").order_by("-opened_at")}
@@ -106,19 +116,45 @@ def home(request):
     for node in Node.objects.filter(is_active=True).select_related("chassis").order_by("name"):
         window = latest.get(node.pk)
         css, label = node_state(node, window, live_alerts.get(node.pk), _in_event(node, window, held_back, level))
-        tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk)})
-    tiles.sort(key=lambda t: (order[t["css"]], t["node"].name))
+        shared = label == "In cluster event"
+        tiles.append({"node": node, "css": css, "label": label, "window": window, "alert": live_alerts.get(node.pk),
+                      "state": "shared" if shared else css, "short": _short(node.name),
+                      "map": "evt" if shared else MAP_CLASS[css]})
     counts = {k: sum(1 for t in tiles if t["css"] == k) for k in ("normal", "unusual", "review", "unknown")}
+    in_event = sum(1 for t in tiles if t["label"] == "In cluster event")       # unusual, but part of one shared event
     by_chassis = {}
-    for t in tiles:                       # tiles keep their order inside a chassis: problems first, then by name
+    for t in tiles:                                    # tiles are already in name order, which is the order they stand in
         by_chassis.setdefault(t["node"].chassis.name if t["node"].chassis_id else "", []).append(t)
     named = sorted((k for k in by_chassis if k), key=chassis_service.natural_key)
-    tile_groups = [{"name": k, "tiles": by_chassis[k]} for k in named]
+    map_groups = [{"name": k, "tiles": by_chassis[k], "span": _span(by_chassis[k])} for k in named]
     if "" in by_chassis:
-        tile_groups.append({"name": "Other nodes" if named else "", "tiles": by_chassis[""]})
-    in_event = sum(1 for t in tiles if t["label"] == "In cluster event")       # unusual, but part of one shared event
-    source_ok = bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER)
-    model = ModelVersion.objects.order_by("-trained_at").first()
+        map_groups.append({"name": "Other nodes" if named else "", "tiles": by_chassis[""], "span": _span(by_chassis[""])})
+    return {
+        "tiles": sorted(tiles, key=lambda t: (order[t["css"]], t["node"].name)), "map_groups": map_groups, "counts": counts,
+        "needs_attention": counts["unusual"] + counts["review"] - in_event, "in_event": in_event,
+        "last_cycle": last_cycle, "level": level, "live_alerts": live_alerts, "total": len(tiles),
+        "source_ok": bool(last_cycle and last_cycle.source_reachable and timezone.now() - last_cycle.started_at < STALE_AFTER),
+        "model": ModelVersion.objects.order_by("-trained_at").first(),
+    }
+
+
+def _span(tiles):
+    """'compute01–12' for the nodes in one chassis, in the order they stand."""
+    if len(tiles) < 2:
+        return tiles[0]["node"].name if tiles else ""
+    first, last = tiles[0]["node"].name, tiles[-1]["node"].name
+    cut = len(os.path.commonprefix([first, last]))
+    while cut and first[cut - 1].isdigit():
+        cut -= 1
+    return f"{first}–{last[cut:]}" if cut else f"{first}–{last}"
+
+
+@login_required
+def home(request):
+    """S-02 overview: what needs attention first, the whole fleet over the last day, and the chassis map (FR-20)."""
+    f = _fleet(request)
+    tiles = f["tiles"]
+    model, last_cycle, source_ok = f["model"], f["last_cycle"], f["source_ok"]
     setup = [
         {"done": bool(last_cycle and last_cycle.source_reachable), "title": "Connect to Prometheus",
          "text": "Set the address of your Prometheus server and test it.", "url": "controls", "action": "Open settings"},
@@ -127,23 +163,85 @@ def home(request):
         {"done": source_ok and model is not None, "title": "Monitoring runs by itself",
          "text": "The worker scores every node every two minutes and raises alerts here.", "url": None, "action": ""},
     ]
+    events = recent_events()
     return render(request, "fleet.html", {
-        "watch": _watch(level) if tiles else None,
-        "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(), "events": recent_events(),
-        "tiles": tiles, "tile_groups": tile_groups, "counts": counts, "needs_attention": counts["unusual"] + counts["review"] - in_event, "in_event": in_event,
-        "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
-        "attention": [t for t in tiles if t["alert"]], "setup": setup, "setup_done": all(x["done"] for x in setup),
-        "total": len(tiles),
+        "watch": _watch(f["level"], f["live_alerts"]) if tiles else None,
+        "to_review": Alert.objects.filter(mode="LIVE", status=Alert.Status.RESOLVED).count(), "events": events,
+        "live_events": [e for e in events if e.is_active], "past_events": [e for e in events if not e.is_active],
+        "tiles": tiles, "map_groups": f["map_groups"], "counts": f["counts"], "needs_attention": f["needs_attention"],
+        "in_event": f["in_event"], "last_cycle": last_cycle, "source_ok": source_ok, "model": model,
+        "attention": sorted((t for t in tiles if t["alert"]), key=lambda t: (t["css"] != "unusual", -t["alert"].opened_at.timestamp())),
+        "setup": setup, "setup_done": all(x["done"] for x in setup), "total": f["total"],
     })
 
 
-def _watch(level):
-    """The last 24 hours of every node for the history map, with the links the map needs. None when there is nothing to draw."""
+def _percent(value):
+    return None if value is None else round(100 * value)
+
+
+@login_required
+def nodes(request):
+    """Every node in one table: its state, the last day as a small line, its score, CPU and memory, and its latest alert."""
+    f = _fleet(request)
+    grid = _watch(f["level"], f["live_alerts"]) if f["tiles"] else None
+    lines = {r["node"]: r for r in grid["rows"]} if grid else {}
+    since = timezone.now() - timedelta(days=30)
+    newest = {}
+    for a in Alert.objects.filter(mode="LIVE", opened_at__gte=since).order_by("opened_at"):
+        newest[a.node_id] = a                                         # the last one written is the newest
+    rows = []
+    for t in f["tiles"]:
+        w, feats = t["window"], (t["window"].features if t["window"] else {}) or {}
+        cpu, free = feats.get("cpu_busy__mean_5"), feats.get("mem_available_ratio__mean_5")
+        line = lines.get(t["node"].name)
+        rows.append({**t, "score": w.combined_score if w else None, "cpu": _percent(cpu),
+                     "mem": None if free is None else _percent(1 - free), "latest": newest.get(t["node"].pk),
+                     "spark": _spark(line, grid["level"]) if line else None})
+    return render(request, "nodes.html", {
+        "rows": rows, "counts": f["counts"], "needs_attention": f["needs_attention"], "in_event": f["in_event"],
+        "total": f["total"], "model": f["model"], "map_groups": f["map_groups"], "has_chassis": any(g["name"] for g in f["map_groups"]),
+    })
+
+
+SPARK_W, SPARK_H, SPARK_MAX = 120, 22, 6.0
+
+
+def _spark(row, level):
+    """A node's last day as a small line: the path, and where the alert level falls on it. Gaps where it was not scored."""
+    cells, scores = row["cells"], row["v"]
+    count, parts, drawing = len(cells), [], False
+    for i, ch in enumerate(cells):
+        if ch in ".q":
+            drawing = False
+            continue
+        x = i / max(count - 1, 1) * SPARK_W
+        y = SPARK_H - min(scores[i] / 10 / SPARK_MAX, 1) * SPARK_H
+        parts.append(f"{'L' if drawing else 'M'}{x:.1f} {y:.1f}")
+        drawing = True
+    return {"d": " ".join(parts), "level": None if level is None else round(SPARK_H - min(level / SPARK_MAX, 1) * SPARK_H, 1),
+            "w": SPARK_W, "h": SPARK_H, "tone": {"u": "bad", "w": "warn"}.get(row.get("state", ""), "")}
+
+
+def _watch(level, live_alerts=None):
+    """The last 24 hours of every node for the history map and the score chart, with the links they need.
+    None when there is nothing to draw."""
     grid = timeline_service.fleet_timeline(level)
     if not grid["has_data"]:
         return None
+    looking = {a.node.name: a for a in (live_alerts or {}).values() if a.status == Alert.Status.ACKNOWLEDGED}
+    since = {}
+    if looking:                                       # when each of these was taken up: the squares turn amber from then on
+        for action in AlertAction.objects.filter(alert__in=looking.values(), action=AlertAction.Action.ACKNOWLEDGE).order_by("created_at"):
+            since.setdefault(action.alert_id, action.created_at)
+    step = grid["step"] * 60
+    by_name = {a.node.name: a for a in (live_alerts or {}).values()}
     for row in grid["rows"]:
         row["url"] = reverse("node_detail", args=[row["node"]])
+        alert = by_name.get(row["node"])
+        row["state"] = "" if alert is None else "w" if alert.status == Alert.Status.ACKNOWLEDGED else "u"
+        if alert is not None and alert.pk in since:
+            first = max(int(((since[alert.pk].timestamp() * 1000) - grid["start"]) / 1000 // step), 0)
+            row["cells"] = row["cells"][:first] + row["cells"][first:].replace("u", "w")
     for event in grid["events"]:
         event["url"] = reverse("event_detail", args=[event["id"]])
     return grid
@@ -212,7 +310,7 @@ def node_detail(request, name):
     return render(request, "node_detail.html", {
         "node": node, "latest": latest, "chart": chart, "threshold": threshold, "state_css": css, "state_label": label,
         "unusual": unusual, "rest": rest, "alerts": alerts[:20], "markers": markers, "live_alert": live_alert,
-        "has_band": bool(baseline),
+        "has_band": bool(baseline), "map_groups": _fleet()["map_groups"], "selected": node.name,
     })
 
 
@@ -231,20 +329,20 @@ def event_detail(request, pk):
         "event": event, "nodes": sorted(event.nodes),
         "causes": [{"label": display.label(m), "nodes": n} for m, n in causes],
         "share": round(100 * event.peak_nodes / event.peak_reliable) if event.peak_reliable else 0,
+        "map_groups": _fleet()["map_groups"], "marked": list(event.nodes),
     })
 
 
-ALERT_TABS = [("live", "Active"), ("review", "Needs review"), ("closed", "Reviewed"), ("all", "All")]
+ALERT_TABS = [("live", "Active"), ("review", "Recovered"), ("closed", "Reviewed"), ("all", "All")]
+TAB_OF = {"OPEN": "live", "ACKNOWLEDGED": "live", "RESOLVED": "review", "CLOSED": "closed"}
 
 
-@login_required
-def alert_list(request):
-    """S-04 alerts: what is happening now, what recovered and wants a quick look, and what has been reviewed (FR-22)."""
-    status = request.GET.get("status", "live")
+def _alert_list(request, status, selected=None):
+    """The alerts a person is looking through: the tab, the filters, the counts for every tab (FR-22)."""
     everything = Alert.objects.filter(mode="LIVE")
     counts = everything.aggregate(live=Count("pk", filter=Q(status__in=Alert.ACTIVE)), review=Count("pk", filter=Q(status="RESOLVED")),
                                   closed=Count("pk", filter=Q(status="CLOSED")), all=Count("pk"))
-    qs = everything.select_related("node")
+    qs = everything.select_related("node", "node__chassis")
     if status == "live":
         qs = qs.filter(status__in=Alert.ACTIVE)
     elif status == "review":
@@ -266,12 +364,36 @@ def alert_list(request):
                 qs = qs.filter(**{lookup: datetime.strptime(value, "%Y-%m-%d").date()})
             except ValueError:
                 errors.append(f"'{value}' is not a date in the form YYYY-MM-DD.")
-    return render(request, "alert_list.html", {
-        "alerts": qs.order_by("-opened_at")[:200], "status": status, "node": node, "counts": counts,
+    alerts = list(qs.order_by("-opened_at")[:200])
+    if selected is not None and selected.pk not in {a.pk for a in alerts}:
+        alerts.insert(0, selected)                       # the alert being read is always in the list beside it
+    return {
+        "alerts": alerts, "status": status, "node": node, "counts": counts,
         "filters": [(key, label, counts[key]) for key, label in ALERT_TABS],
         "date_from": request.GET.get("from", ""), "date_to": request.GET.get("to", ""), "errors": errors,
-        "can_review": status in ("live", "review", "all"), "events": recent_events(),
-    })
+        "can_review": status in ("live", "review", "all"),
+    }
+
+
+@login_required
+def alert_list(request):
+    """S-04 alerts: what is happening now, what recovered and wants a quick look, and what has been reviewed (FR-22).
+
+    The first alert in the list is open beside it, so the list and the detail are one page."""
+    ctx = _alert_list(request, request.GET.get("status", "live"))
+    ctx["events"] = recent_events()
+    ctx["list_page"] = True
+    selected = ctx["alerts"][0] if ctx["alerts"] else None
+    return render(request, "alerts.html", _with_alert(ctx, selected))
+
+
+def _with_alert(ctx, alert):
+    """Add what the detail beside the list needs: the open alert and the chassis map around its node."""
+    ctx["selected"] = alert
+    if alert is not None:
+        ctx.update(_alert_detail(alert))
+        ctx["map_groups"] = _fleet()["map_groups"]
+    return ctx
 
 
 def _contributor_rows(contributors):
@@ -286,28 +408,35 @@ def _contributor_rows(contributors):
     return rows
 
 
-@login_required
-def alert_detail(request, pk):
+def _alert_detail(alert):
     """S-05 one alert: what changed, why it was raised, and the next step (FR-19, FR-24 to FR-27)."""
-    alert = get_object_or_404(Alert.objects.select_related("node", "model"), pk=pk)
     ex = alert.explanation or {}
     latest = ex.get("latest") or {}
     rows = _contributor_rows(latest.get("contributors") or ex.get("contributors", []))
     opening = _contributor_rows(ex.get("contributors", [])) if latest else []
-    h = ex.get("history") or {}
     windows = list(alert.windows.order_by("window_end")[:400])
     chart = [{"t": w.window_end.isoformat(), "v": round(w.combined_score, 3)} for w in windows if w.combined_score is not None]
-    steps = [("OPEN", "Active"), ("RESOLVED", "Recovered"), ("CLOSED", "Reviewed")]
-    reached = {"OPEN": 0, "ACKNOWLEDGED": 0, "RESOLVED": 1, "CLOSED": 2}[alert.status]
-    return render(request, "alert_detail.html", {
-        "alert": alert, "rows": rows, "opening": opening, "latest_at": latest.get("at"), "history": h, "chart": chart,
-        "threshold": ex.get("threshold"),
+    steps = [("OPEN", "Opened"), ("ACKNOWLEDGED", "Being looked at"), ("RESOLVED", "Recovered"), ("CLOSED", "Reviewed")]
+    reached = {"OPEN": 0, "ACKNOWLEDGED": 1, "RESOLVED": 2, "CLOSED": 3}[alert.status]
+    looked = alert.actions.filter(action=AlertAction.Action.ACKNOWLEDGE).exists()
+    return {
+        "alert": alert, "rows": rows, "opening": opening, "latest_at": latest.get("at"), "history": ex.get("history") or {},
+        "chart": chart, "threshold": ex.get("threshold"), "score_now": chart[-1]["v"] if chart else None,
         "actions": alert.actions.select_related("user").order_by("created_at"), "windows": windows[-50:],
-        "steps": [{"key": k, "label": lbl, "state": "done" if i < reached else "current" if i == reached else "todo"}
+        "steps": [{"key": k, "label": lbl, "state": ("skipped" if k == "ACKNOWLEDGED" and not looked and reached > 1 else
+                                                      "done" if i < reached else "current" if i == reached else "todo")}
                   for i, (k, lbl) in enumerate(steps)],
         "close_form": forms.CloseForm(), "note_form": forms.NoteForm(),
         "load_state": (latest.get("load_state") or ex.get("load_state") or "").lower(),
-    })
+    }
+
+
+@login_required
+def alert_detail(request, pk):
+    """One alert, with the list it came from beside it."""
+    alert = get_object_or_404(Alert.objects.select_related("node", "node__chassis", "model"), pk=pk)
+    ctx = _alert_list(request, request.GET.get("status") or TAB_OF[alert.status], selected=alert)
+    return render(request, "alerts.html", _with_alert(ctx, alert))
 
 
 def _review(request, pk, operation, done="Done."):

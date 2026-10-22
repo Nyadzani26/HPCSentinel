@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% load sentinel %}
+{% block title %}Nodes · HPCSentinel{% endblock %}
+{% block wrapclass %}{% if rows %} side{% endif %}{% endblock %}
+
+{% block sidecol %}{% if rows %}
+<aside class="sidecol" aria-label="Chassis map"><div class="stick">{% include "_map.html" %}</div></aside>
+{% endif %}{% endblock %}
+
+{% block content %}
+<div class="head"><div><h1>Nodes</h1>
+  <p>Every node on one page. Each is compared with its own normal behaviour, separately for when it is idle and when it is busy. Open one to see what changed and why.</p></div>
+  {% if total %}
+  <dl class="tally" aria-label="Nodes by state">
+    <div class="t-normal{% if not counts.normal %} zero{% endif %}"><dt>Normal</dt><dd>{{ counts.normal }}</dd></div>
+    <div class="t-unusual{% if not needs_attention %} zero{% endif %}"><dt>Need attention</dt><dd>{{ needs_attention }}</dd></div>
+    {% if in_event %}<div class="t-shared"><dt>In cluster event</dt><dd>{{ in_event }}</dd></div>{% endif %}
+    <div class="t-unknown{% if not counts.unknown %} zero{% endif %}"><dt>Not scored</dt><dd>{{ counts.unknown }}</dd></div>
+  </dl>
+  {% endif %}
+</div>
+
+<section class="panel" aria-labelledby="nodes-h">
+  <h2 id="nodes-h"><span>All nodes <span class="cnt">{{ total }}</span></span></h2>
+  {% if rows %}
+  <div class="tool">
+    <div class="seg" role="group" aria-label="Filter by state" id="filters">
+      <button type="button" data-f="all" aria-pressed="true">All<span class="n">{{ total }}</span></button>
+      <button type="button" data-f="attention" aria-pressed="false">Needs attention<span class="n">{{ needs_attention }}</span></button>
+      {% if in_event %}<button type="button" data-f="shared" aria-pressed="false">In cluster event<span class="n">{{ in_event }}</span></button>{% endif %}
+      <button type="button" data-f="normal" aria-pressed="false">Normal<span class="n">{{ counts.normal }}</span></button>
+      <button type="button" data-f="unknown" aria-pressed="false">Not scored<span class="n">{{ counts.unknown }}</span></button>
+    </div>
+    <input type="search" id="q" class="srch grow" placeholder="Find a node, e.g. compute07" aria-label="Find a node" autocomplete="off">
+  </div>
+  <table id="nodes">
+    <thead><tr><th></th><th>Node</th>{% if has_chassis %}<th class="wide-only">Chassis</th>{% endif %}<th>State</th><th class="wide-only">Last 24 hours</th><th class="num">Score</th><th>CPU</th><th>Memory</th><th>Latest alert</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr class="{% if r.state == 'unusual' %}hbad{% elif r.state == 'review' %}hwarn{% elif r.state == 'shared' %}hevt{% endif %}" data-state="{{ r.state }}" data-name="{{ r.node.name }}">
+      <td style="width:30px"><span class="dot {% if r.state == 'unusual' %}bad{% elif r.state == 'review' %}warn{% elif r.state == 'shared' %}evt{% elif r.state == 'unknown' %}off{% endif %}"></span></td>
+      <td class="n"><a href="{% url 'node_detail' r.node.name %}">{{ r.node.name }}</a></td>
+      {% if has_chassis %}<td class="muted wide-only">{{ r.node.chassis.name|default:"–" }}</td>{% endif %}
+      <td class="{% if r.state == 'unusual' %}b bad{% elif r.state == 'review' %}b warn{% elif r.state == 'shared' %}b evt{% else %}muted{% endif %}">{{ r.label }}{% if r.window and r.window.load_state and r.state == 'normal' %}<span class="faint"> · {{ r.window.load_state|lower }}</span>{% endif %}</td>
+      <td class="wide-only">{% if r.spark %}<svg class="spark" width="{{ r.spark.w }}" height="{{ r.spark.h }}" viewBox="0 0 {{ r.spark.w }} {{ r.spark.h }}" role="img" aria-label="{{ r.node.name }} score over the last 24 hours">{% if r.spark.level is not None %}<line x1="0" x2="{{ r.spark.w }}" y1="{{ r.spark.level }}" y2="{{ r.spark.level }}" stroke="#cfccc4" stroke-dasharray="3 3"/>{% endif %}<path d="{{ r.spark.d }}" fill="none" stroke="{% if r.spark.tone == 'bad' %}#c9382d{% elif r.spark.tone == 'warn' %}#dc9a0f{% else %}#7c8794{% endif %}" stroke-width="1.4" stroke-linejoin="round"/></svg>{% else %}<span class="faint">no data</span>{% endif %}</td>
+      <td class="num {% if r.state == 'unusual' %}b bad{% elif r.state == 'review' %}b warn{% elif r.state == 'shared' %}b evt{% endif %}">{% if r.score is None %}–{% else %}{{ r.score|floatformat:1 }}{% endif %}</td>
+      <td>{% if r.cpu is None %}–{% else %}<span class="meter"><i style="width:{{ r.cpu }}%"></i></span>{{ r.cpu }}%{% endif %}</td>
+      <td>{% if r.mem is None %}–{% else %}<span class="meter"><i style="width:{{ r.mem }}%"></i></span>{{ r.mem }}%{% endif %}</td>
+      <td class="muted">{% if r.latest %}<a href="{% url 'alert_detail' r.latest.pk %}">{{ r.latest.get_status_display }}</a> · {{ r.latest.opened_at|ago }}{% else %}–{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="empty" id="none" hidden><strong>No node matches</strong>Try a different filter or search.</p>
+  <p class="pfoot">
+    {% if model %}Compared with what is normal for each node, learned by {{ model.label }} on {{ model.trained_at|date:"j M Y" }}. {% endif %}
+    “Not scored” means the node is not being judged right now: it has no reliable recent readings, it is changing between idle and busy, or it has no learned baseline for its current state yet.</p>
+  {% else %}
+  <div class="empty"><strong>No nodes yet</strong>Nodes appear after the first check reaches Prometheus.</div>
+  {% endif %}
+</section>
+{% if rows %}
+<script>
+(function () {
+  var q = document.getElementById('q'), rows = document.querySelectorAll('#nodes tbody tr'), f = 'all';
+  function apply() {
+    var term = q.value.trim().toLowerCase(), shown = 0;
+    rows.forEach(function (n) {
+      var s = n.dataset.state, ok = f === 'all' || (f === 'attention' && (s === 'unusual' || s === 'review')) || f === s;
+      ok = ok && n.dataset.name.toLowerCase().indexOf(term) !== -1;
+      n.hidden = !ok; if (ok) shown++;
+    });
+    document.getElementById('none').hidden = shown !== 0;
+  }
+  q.addEventListener('input', apply);
+  document.getElementById('filters').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return; f = b.dataset.f;
+    this.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b); }); apply();
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -28,9 +28,9 @@ the report that is not "Done" or "Pending evidence" must be reported in report S
 | FR-17 | Scheduled re-learning from recent normal data | Done (extended: zero-touch, see below) | `services/autolearn.py`, `jobs.relearn`, `run_worker` | `test_autolearn`, `test_scheduled_relearning_...`, `test_relearning_leaves_out_alerts_...` |
 | FR-18 | Change threshold and persistence | Done | controls page, `settings_store` | `test_settings_are_validated_and_saved`, `test_effective_config_applies_saved_settings` |
 | FR-19 | Explanation with every alert | Done | `engine.explain`, alert detail page | `test_the_explanation_names_...`, `test_replay_detects_...` |
-| FR-20 | Fleet overview | Done | `views.home`, `fleet.html` | `FleetScreenTests` |
+| FR-20 | Fleet overview (Overview page, and the Nodes table) | Done | `views.home`, `views.nodes`, `fleet.html`, `nodes.html` | `FleetScreenTests`, `NodesPageTests` |
 | FR-21 | Node detail with metric charts and alert points | Done | `views.node_detail`, `node_detail.html` | `test_node_detail_renders_without_data` (charts are drawn in the browser; checked by screenshot) |
-| FR-22 | Alert list filtered by node, status, time range | Done | `views.alert_list` | `AlertFilterTests`, `TriageTests.test_list_filters` |
+| FR-22 | Alert list filtered by node, status, time range | Done | `views.alert_list`, `alerts.html` | `AlertFilterTests`, `AlertPageLayoutTests`, `TriageTests.test_list_filters` |
 | FR-23 | Per-node alert history with outcomes | Done | `node_detail.html` | screenshot; history counts in `explain` |
 | FR-24 | Alert lifecycle: Active → Recovered (by the platform) → Reviewed with outcome (by a person, optional) | Done (changed, see below) | `Alert`, `ReviewService`, `engine.AlertManager` | `test_models`, `test_review`, `TriageTests`, `AlertLifecycleTests` |
 | FR-25 | Notes | Done | `ReviewService.add_note` | `test_review`, `TriageTests` |

@@ -1,0 +1,215 @@
+{% extends "base.html" %}
+{% load sentinel %}
+{% block title %}{% if selected and not list_page %}Alert on {{ selected.node.name }}{% else %}Alerts{% endif %} · HPCSentinel{% endblock %}
+{% block wrapclass %} lst{% if selected %} rail{% endif %}{% if list_page %} list-first{% endif %}{% endblock %}
+
+{% block sidecol %}
+<aside class="sidecol listcol" aria-label="Alerts"><div class="stick">
+<form method="post" action="{% url 'alert_bulk' %}" class="alist-form">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <h2 class="lh">Alerts</h2>
+  <div class="seg tabsx" role="group" aria-label="Filter by status">
+    {% for key, label, n in filters %}<a class="{% if status == key %}on{% endif %}" href="?status={{ key }}{% if node %}&node={{ node|urlencode }}{% endif %}{% if date_from %}&from={{ date_from }}{% endif %}{% if date_to %}&to={{ date_to }}{% endif %}">{{ label }}<span class="n">{{ n }}</span></a>{% endfor %}
+  </div>
+  <details class="filters"{% if node or date_from or date_to or errors %} open{% endif %}>
+    <summary>{% if node or date_from or date_to %}Filtered{% else %}Find by node or date{% endif %}</summary>
+    <div class="fbox">
+      <label>Node <input form="alert-filter" name="node" value="{{ node }}" placeholder="e.g. compute03"></label>
+      <label>From <input form="alert-filter" type="date" name="from" value="{{ date_from }}"></label>
+      <label>To <input form="alert-filter" type="date" name="to" value="{{ date_to }}"></label>
+      <button type="submit" form="alert-filter" class="btn s sm">Apply</button>
+    </div>
+  </details>
+  {% for e in errors %}<p class="error" style="padding:0 16px 8px">{{ e }}</p>{% endfor %}
+  {% if alerts and can_review %}
+  <div class="bulk" id="bulk">
+    <label class="bulk-all"><input type="checkbox" id="pick-all" aria-label="Select all"> Select all</label>
+    <span class="muted small" id="picked">Tick alerts to review several at once.</span>
+    <span class="bulk-actions">
+      <button type="submit" name="outcome" value="CONFIRMED" class="btn s sm" disabled data-needs-pick>Mark as real fault</button>
+      <button type="submit" name="outcome" value="FALSE_ALARM" class="btn s sm" disabled data-needs-pick>Mark as false alarm</button>
+    </span>
+  </div>
+  {% endif %}
+  {% for a in alerts %}
+  <div class="aitem {% if a.status == 'OPEN' %}unusual{% elif a.status == 'ACKNOWLEDGED' %}review{% endif %}{% if selected and a.pk == selected.pk %} on{% endif %}">
+    {% if can_review and a.status != "CLOSED" %}<input type="checkbox" name="ids" value="{{ a.pk }}" class="pick" aria-label="Select {{ a.node.name }}">{% elif can_review %}<span class="pickgap"></span>{% endif %}
+    <div class="abody">
+      <a class="alink" href="{% url 'alert_detail' a.pk %}?status={{ status }}"{% if selected and a.pk == selected.pk %} aria-current="true"{% endif %}>
+        <span class="top2"><b>{{ a.node.name }}</b><small class="when2" title="Opened {{ a.opened_at|date:'Y-m-d H:i' }} {{ tz_label }}">{% if a.is_active %}{{ a.lasted|span }}, still going{% else %}{{ a.opened_at|ago }} · {{ a.lasted|span }}{% endif %}</small></span>
+        <span class="what2">{% alert_what a %}</span>
+      </a>
+      <span class="stat2">
+        <span class="pill {{ a.status }}">{{ a.get_status_display }}</span>
+        {% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>{% endif %}
+        {% if a.recurrences %}<span class="muted small">came back {{ a.recurrences }} time{{ a.recurrences|pluralize }}</span>{% endif %}
+      </span>
+      {% if a.status == "RESOLVED" %}
+      <span class="qrow">
+        <button type="submit" name="outcome" value="CONFIRMED" formaction="{% url 'alert_quick' a.pk %}" class="btn s sm">Real fault</button>
+        <button type="submit" name="outcome" value="FALSE_ALARM" formaction="{% url 'alert_quick' a.pk %}" class="btn s sm">False alarm</button>
+      </span>
+      {% endif %}
+    </div>
+  </div>
+  {% empty %}
+  <div class="empty" style="padding:26px 16px">
+    {% if status == "live" %}<strong>Nothing is happening right now</strong>
+      {% if counts.review %}{{ counts.review }} recovered alert{{ counts.review|pluralize }} {{ counts.review|pluralize:"is,are" }} waiting for an optional review. <a href="?status=review">Have a look</a>.
+      {% else %}When a node behaves unusually for several checks in a row, an alert appears here and closes itself when the node is normal again.{% endif %}
+    {% elif status == "review" %}<strong>Nothing is waiting for review</strong>Alerts that recovered by themselves appear here, so you can say whether each one was real.
+    {% else %}<strong>No alerts match</strong>Try a different tab or clear the filters.{% endif %}
+  </div>
+  {% endfor %}
+  {% if status == "live" and counts.review and alerts %}
+  <div class="aitem more"><b>{{ counts.review }} recovered alert{{ counts.review|pluralize }}</b>
+    <p class="muted small">ended by themselves and {{ counts.review|pluralize:"is,are" }} waiting for an optional review.</p>
+    <a class="btn s sm" href="?status=review">Review {{ counts.review|pluralize:"it,them" }}</a></div>
+  {% endif %}
+</form>
+<form method="get" id="alert-filter" hidden><input type="hidden" name="status" value="{{ status }}"></form>
+</div></aside>
+{% endblock %}
+
+{% block content %}
+{% if list_page %}{% include "_events.html" %}{% endif %}
+{% if selected %}
+{% with alert=selected %}
+<div class="crumbs"><a href="{% url 'alert_list' %}">Alerts</a> / <a href="{% url 'node_detail' alert.node.name %}">{{ alert.node.name }}</a></div>
+<div class="head">
+  <div>
+    <h1 style="font-size:23px">{% alert_headline alert %}</h1>
+    <p>Started {{ alert.opened_at|ago }} ({{ alert.opened_at|date:"j M Y, H:i" }} {{ tz_label }})
+      {% if alert.is_active %}· <strong style="color:var(--ink)">still going</strong>, {{ alert.lasted|span }} so far{% else %}· lasted {{ alert.lasted|span }}{% endif %}
+      {% if alert.recurrences %}· came back {{ alert.recurrences }} time{{ alert.recurrences|pluralize }}{% endif %}
+      {% if alert.status == "RESOLVED" or alert.recovered_at %}<br>{% if alert.resolved_reason == "no_data" %}Ended {{ alert.recovered_at|ago }} because the node stopped reporting.{% else %}Ended by itself {{ alert.recovered_at|ago }}: the node was normal again.{% endif %}{% endif %}
+      {% if alert.closed_at %}<br>Reviewed {{ alert.closed_at|date:"j M Y, H:i" }} {{ tz_label }}.{% endif %}</p>
+  </div>
+  <div class="acts"><span class="pill {{ alert.status }}">{{ alert.get_status_display }}</span>{% if alert.outcome %}<span class="pill {{ alert.outcome }}">{{ alert.get_outcome_display }}</span>{% endif %}</div>
+</div>
+<div class="step" aria-label="Progress">
+  {% for s in steps %}<span class="{{ s.state }}">{{ s.label }}</span>{% if not forloop.last %}<i></i>{% endif %}{% endfor %}
+</div>
+<div class="facts">
+  <div><small>Opened</small><b>{{ alert.opened_at|date:"j M, H:i" }}</b></div>
+  <div><small>{% if alert.is_active %}Open for{% else %}Lasted{% endif %}</small><b>{{ alert.lasted|span }}</b></div>
+  <div><small>{% if alert.is_active %}Highest so far{% else %}Highest score{% endif %}</small><b>{{ alert.peak_score|floatformat:1 }}{% if alert.is_active and score_now is not None %} <span class="faint" style="font-weight:400">now {{ score_now|floatformat:1 }}</span>{% endif %}</b></div>
+  <div><small>Location</small><b>{{ alert.node.chassis.name|default:"–" }}</b></div>
+</div>
+
+{% if chart %}
+<section class="panel"><h2>How unusual it was <em>the dashed line is the alert level{% if threshold %}, {{ threshold }}{% endif %}</em></h2>
+  <div id="score" class="pb" style="padding:10px 12px 4px"></div>
+  <p class="pfoot">An alert opens when the score stays above the alert level for several checks in a row.</p></section>
+{% endif %}
+
+<section class="panel">
+  <h2>What changed <em>{% if latest_at %}as of the latest check{% else %}when it opened{% endif %}</em></h2>
+  {% if rows %}
+  <table>
+    <thead><tr><th>Metric</th><th class="num">Now</th><th class="num">Normal</th><th>Change</th><th class="wide-only">How much it counted</th></tr></thead>
+    <tbody>
+    {% for r in rows %}<tr>
+      <td class="what"><strong>{{ r.label }}</strong><div class="muted small">vs {{ r.compared_with }}</div></td>
+      <td class="num"><strong>{{ r.now }}</strong></td><td class="num">{{ r.normal }}</td>
+      <td><span class="delta {{ r.direction }}">{% if r.direction == "down" %}▼{% elif r.direction == "up" %}▲{% endif %} {{ r.change }}</span></td>
+      <td class="wide-only"><span class="meter" style="width:110px" title="Share of the evidence for this alert"><i style="width:{{ r.share }}%;background:var(--bad)"></i></span></td>
+    </tr>{% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  <p class="pfoot">These metrics moved furthest from what is normal for this node{% if latest_at %}, as of the latest check{% endif %}.<span class="wide-only"> The bar shows how much each one counted towards the alert.</span></p>
+</section>
+
+<section class="panel">
+  <h2>Why this was flagged</h2>
+  <div class="pb">
+    <p>The node was <strong>{{ load_state|default:"–" }}</strong>, so it was compared with its own {{ load_state }} behaviour and with other nodes in the group that were also {{ load_state }}. It stayed outside the normal range for <strong>{{ alert.explanation.persistence_windows }} checks in a row</strong>, which is what makes it an alert rather than a blip.</p>
+    {% if history %}
+    <p class="muted">{% if history.alerts_last_30_days %}In the last 30 days this node raised {{ history.alerts_last_30_days }} alert{{ history.alerts_last_30_days|pluralize }}: {{ history.confirmed_last_30_days }} confirmed as a real fault and {{ history.false_alarms_last_30_days }} closed as a false alarm.{% else %}This node has not raised an alert in the last 30 days.{% endif %}</p>
+    {% endif %}
+    {% if opening %}
+    <details class="fold"><summary>How it looked when the alert opened</summary>
+      <table style="margin-top:8px"><thead><tr><th>Metric</th><th class="num">Then</th><th class="num">Normal</th><th>Change</th></tr></thead><tbody>
+      {% for r in opening %}<tr><td><strong>{{ r.label }}</strong></td><td class="num">{{ r.now }}</td><td class="num">{{ r.normal }}</td><td>{{ r.change }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+    {% endif %}
+    <details class="fold"><summary>Technical details</summary>
+      <p class="muted small" style="margin-top:8px">Scores are in units of typical spread: 0 is normal, and the alert level is {{ threshold }}. The combined score weighs the node against its own baseline, against its peers, and the Isolation Forest model {{ alert.model.label }}.</p>
+      <p class="small" style="margin-top:4px">Peak {{ alert.peak_score|floatformat:2 }} · baseline {{ alert.explanation.scores.baseline|default_if_none:"–" }} · peers {{ alert.explanation.scores.peer|default_if_none:"–" }} · model {{ alert.explanation.scores.model|default_if_none:"–" }} · combined {{ alert.explanation.scores.combined|default_if_none:"–" }} when it opened.</p>
+      <table style="margin-top:8px"><thead><tr><th>Check ({{ tz_label }})</th><th class="num">Baseline</th><th class="num">Peers</th><th class="num">Model</th><th class="num">Combined</th></tr></thead><tbody>
+      {% for w in windows %}<tr><td>{{ w.window_end|date:"H:i" }}</td><td class="num">{{ w.baseline_score|floatformat:2 }}</td><td class="num">{{ w.peer_score|floatformat:2 }}</td><td class="num">{{ w.model_score|floatformat:2 }}</td><td class="num">{{ w.combined_score|floatformat:2 }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+  </div>
+</section>
+{% if chart %}{{ chart|json_script:"score-data" }}{{ threshold|json_script:"threshold" }}
+{% include "_chart.html" %}
+<script>
+(function () {
+  function J(id) { var e = document.getElementById(id); return e ? JSON.parse(e.textContent) : null; }
+  var host = document.getElementById('score');
+  if (host) Sentinel.line(host, J('score-data'), {h: 150, threshold: J('threshold'), floor: 0, color: '--bad', label: 'Unusualness during the alert', tipLabel: 'Score '});
+})();
+</script>{% endif %}
+{% endwith %}
+{% else %}
+<div class="head"><div><h1>Alerts</h1>
+  <p>An alert follows one problem on one node. It updates while the problem lasts and closes itself when the node is normal again, so you never have to acknowledge it first. Telling the platform whether it was a real fault is optional, and it is how the platform's accuracy gets measured.</p></div></div>
+<section class="panel"><div class="empty">Pick a tab on the left to see alerts. Nothing matches this one yet.</div></section>
+{% endif %}
+{% endblock %}
+
+{% block railcol %}{% if selected %}
+<aside class="railcol" aria-label="Review and activity"><div class="stick">
+  {% with alert=selected selected=selected.node.name %}
+  {% include "_map.html" %}
+  <section class="panel">
+    <h2>{% if alert.status == "CLOSED" %}Reviewed{% else %}Was it a real fault?{% endif %}</h2>
+    <div class="pb">
+    {% if alert.status != "CLOSED" %}
+      <p class="muted small">{% if alert.is_active %}This alert closes by itself when the node is normal again. You can already say what it was, or leave that until later.{% else %}The node is normal again. Saying what this was is optional, but it is how the platform's accuracy is measured.{% endif %}</p>
+      <form method="post" action="{% url 'alert_close' alert.pk %}" class="form" style="margin-top:12px">{% csrf_token %}
+        <label class="choice"><input type="radio" name="outcome" value="CONFIRMED" required><span><strong>Real fault</strong><span class="hint">Something was wrong with the node.</span></span></label>
+        <label class="choice"><input type="radio" name="outcome" value="FALSE_ALARM"><span><strong>False alarm</strong><span class="hint">The node was fine. This was normal behaviour.</span></span></label>
+        <label for="close-note">Note <span class="hint">Optional. What was the cause, or what did you do?</span><textarea id="close-note" name="note" rows="3"></textarea></label>
+        <button type="submit" class="btn">Save review</button>
+      </form>
+      {% if alert.status == "OPEN" %}
+      <form method="post" action="{% url 'alert_acknowledge' alert.pk %}" class="form" style="margin-top:12px;border-top:1px solid var(--line2);padding-top:12px">{% csrf_token %}
+        <p class="muted small">Or let your team know you are looking into it:</p>
+        <button type="submit" class="btn s sm">I'm looking into it</button>
+      </form>
+      {% endif %}
+    {% else %}
+      <p>Marked as <strong>{{ alert.get_outcome_display|lower }}</strong>.</p>
+      {% if user.is_administrator %}
+      <form method="post" action="{% url 'alert_reopen' alert.pk %}" class="form" style="margin-top:12px">{% csrf_token %}
+        <label for="reopen-note">Why reopen? <textarea id="reopen-note" name="note" rows="2"></textarea></label>
+        <button type="submit" class="btn s">Reopen alert</button>
+      </form>
+      {% else %}<p class="muted small" style="margin-top:8px">Only an Administrator can reopen a reviewed alert.</p>{% endif %}
+    {% endif %}
+    </div>
+  </section>
+  <section class="panel">
+    <h2>Activity</h2>
+    <div class="pb">
+      {% if actions %}
+      <ul class="tl">
+        {% for a in actions %}<li>{% if a.user.username != "system" %}<strong>{{ a.user.username }}</strong>{% else %}<strong>HPCSentinel</strong>{% endif %} {% if a.action == "ACKNOWLEDGE" %}said they are looking into it{% elif a.action == "CLOSE" %}marked it as {{ a.get_outcome_display|lower }}{% elif a.action == "REOPEN" %}reopened it{% elif a.action == "RECOVER" or a.action == "RECUR" %}<span class="muted">(automatic)</span>{% else %}added a note{% endif %}
+          <small title="{{ a.created_at|date:'Y-m-d H:i' }} {{ tz_label }}">{{ a.created_at|ago }}</small>{% if a.note %}<div>{{ a.note }}</div>{% endif %}</li>{% endfor %}
+      </ul>
+      {% else %}<p class="muted small">Nothing yet. Actions and notes appear here with who and when.</p>{% endif %}
+      {% if alert.status != "CLOSED" %}
+      <form method="post" action="{% url 'alert_note' alert.pk %}" class="form" style="margin-top:12px">{% csrf_token %}
+        <label for="note">Add a note<textarea id="note" name="note" rows="2"></textarea></label>
+        <button type="submit" class="btn s sm">Add note</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+  {% endwith %}
+</div></aside>
+{% endif %}{% endblock %}
+

@@ -1,24 +1,35 @@
 {% extends "base.html" %}
 {% load sentinel %}
 {% block title %}{{ node.name }} · HPCSentinel{% endblock %}
+{% block wrapclass %} side{% endblock %}
+{% block sidecol %}
+<aside class="sidecol" aria-label="Chassis map"><div class="stick">
+  {% include "_map.html" %}
+  {% if latest %}
+  <div class="side-h">THIS NODE</div>
+  <div class="side-row"><b>{{ state_label }}</b><span>Checked {{ latest.window_end|ago }}{% if latest.load_state %}, {{ latest.load_state|lower }}{% endif %}</span></div>
+  {% if node.chassis_id %}<div class="side-row"><b>{{ node.chassis.name }}</b><span>{{ node.name }} stands here</span></div>{% endif %}
+  {% endif %}
+</div></aside>
+{% endblock %}
 {% block content %}
-<div class="crumbs"><a href="{% url 'home' %}">Overview</a> / {{ node.name }}</div>
+<div class="crumbs"><a href="{% url 'nodes' %}">Nodes</a> / {{ node.name }}</div>
 <div class="head">
   <div>
-    <h1 style="display:flex;gap:.9rem;align-items:center;flex-wrap:wrap">{{ node.name }} <span class="pill {{ state_css }}{% if state_label == 'In cluster event' %} shared{% endif %}">{{ state_label }}</span></h1>
-    <p class="muted">
+    <h1>{{ node.name }} <span class="pill {{ state_css }}{% if state_label == 'In cluster event' %} shared{% endif %}">{{ state_label }}</span></h1>
+    <p>
       {% if latest %}Checked {{ latest.window_end|ago }}.
         {% if latest.load_state %}The node is {{ latest.load_state|lower }}, so it is compared with its own {{ latest.load_state|lower }} behaviour and with other nodes in the same state.{% endif %}
         {% if state_label == "In cluster event" %}It is part of a cluster-wide event that is still going, so its own alert is held back. If it is still unusual when the event ends, it raises its own alert straight away.{% endif %}
       {% else %}No readings have been scored for this node yet.{% endif %}
     </p>
   </div>
-  {% if live_alert %}<a class="btn" href="{% url 'alert_detail' live_alert.pk %}">Open the alert</a>{% endif %}
+  {% if live_alert %}<div class="acts"><a class="btn" href="{% url 'alert_detail' live_alert.pk %}">Open the alert</a></div>{% endif %}
 </div>
 
 {% if latest and latest.combined_score is not None %}
-<div class="card">
-  <h2>How unusual is it?</h2>
+<section class="panel">
+  <h2>How unusual is it? <em>score now and over the last 6 hours</em></h2>
   <div class="scorebox">
     <div>
       <div class="big">{{ latest.combined_score|floatformat:1 }}</div>
@@ -27,38 +38,37 @@
     </div>
     <div id="score"></div>
   </div>
-</div>
+</section>
 {% endif %}
 
 {% if unusual %}
-<section class="card">
-  <h2>Most unusual metrics right now</h2>
-  <p class="muted small">The shaded band is the range this node normally stays in{% if latest %} when {{ latest.load_state|lower }}{% endif %}.</p>
+<section class="panel">
+  <h2>Most unusual metrics right now <em>the shaded band is the range this node normally stays in{% if latest %} when {{ latest.load_state|lower }}{% endif %}</em></h2>
   <div class="charts" id="unusual">
-    {% for m in unusual %}<div class="card chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
+    {% for m in unusual %}<div class="chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
   </div>
 </section>
 {% elif latest and has_band %}
-<section><div class="card"><strong>Every metric is inside its normal range.</strong></div></section>
+<section class="panel"><div class="empty"><strong>Every metric is inside its normal range.</strong>Nothing about this node stands out right now.</div></section>
 {% endif %}
 
 {% if rest %}
-<section class="card flush">
+<section class="panel">
   <details class="panel-fold">
-    <summary><h2>{% if unusual %}Other metrics{% else %}All metrics{% endif %} <span class="count quiet">{{ rest|length }}</span></h2></summary>
-    <div class="panel-body charts" id="rest">
-      {% for m in rest %}<div class="card chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
+    <summary><h2>{% if unusual %}Other metrics{% else %}All metrics{% endif %} <span class="cnt">{{ rest|length }}</span></h2></summary>
+    <div class="charts" id="rest">
+      {% for m in rest %}<div class="chart" data-i="{{ forloop.counter0 }}"><div class="title"><strong>{{ m.label }}</strong><span class="small">now <strong>{{ m.now }}</strong>{% if m.normal %} · normal {{ m.normal }}{% endif %}</span></div></div>{% endfor %}
     </div>
   </details>
 </section>
 {% endif %}
 
-<section class="card flush">
+<section class="panel">
   <h2>Alert history for this node</h2>
   {% if alerts %}
   <table>
     <thead><tr><th>Status</th><th>What happened</th><th>Opened</th><th>Outcome</th></tr></thead>
-    <tbody>{% for a in alerts %}<tr class="link"><td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
+    <tbody>{% for a in alerts %}<tr><td><span class="pill {{ a.status }}">{{ a.get_status_display }}</span></td>
       <td><a href="{% url 'alert_detail' a.pk %}">{% alert_headline a %}</a></td><td>{{ a.opened_at|ago }}</td>
       <td>{% if a.outcome %}<span class="pill {{ a.outcome }}">{{ a.get_outcome_display }}</span>{% else %}<span class="muted">–</span>{% endif %}</td></tr>{% endfor %}</tbody>
   </table>
@@ -72,7 +82,7 @@
 (function () {
   var J = function (id) { return JSON.parse(document.getElementById(id).textContent); };
   var markers = J('markers'), score = document.getElementById('score');
-  if (score) Sentinel.line(score, J('score-data'), {h: 170, threshold: J('threshold'), markers: markers, floor: 0, label: 'Unusualness over time', tipLabel: 'Score '});
+  if (score) Sentinel.line(score, J('score-data'), {h: 170, threshold: J('threshold'), markers: markers, floor: 0, color: '--ink', label: 'Unusualness over time', tipLabel: 'Score '});
   function group(id, data) {
     var host = document.getElementById(id); if (!host) return;
     host.querySelectorAll('.chart').forEach(function (el) {

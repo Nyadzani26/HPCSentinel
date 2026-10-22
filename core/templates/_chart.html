@@ -25,7 +25,7 @@ window.Sentinel = (function () {
   }
   function clock(t) { var p = parts(t); return p.hour + ':' + p.minute; }
   function day(t) { var p = parts(t); return p.year + '-' + p.month + '-' + p.day + ' ' + clock(t) + ' ' + ZONE_LABEL; }
-  var css = getComputedStyle(document.documentElement);
+  var css = getComputedStyle(document.documentElement), FONT = 'Inter Tight, Segoe UI, system-ui, sans-serif';
   function color(n, d) { return css.getPropertyValue(n).trim() || d; }
 
   function line(host, points, o) {
@@ -43,26 +43,26 @@ window.Sentinel = (function () {
     var pad = (hi - lo) * 0.08; hi += pad; if (o.floor === undefined) lo -= pad;
     function x(t) { return L + (t - t0) / (t1 - t0) * (W - L - R); }
     function y(v) { return H - B - (v - lo) / (hi - lo) * (H - T - B); }
-    var accent = color('--ink', '#0c1922'), bad = color('--bad', '#d4351f'), ok = color('--ok', '#0a8a66'), muted = color('--muted', '#566772'), line = color('--rule-2', '#c5cfd5');
+    var ink = color('--ink', '#1f1e1b'), accent = o.color ? color(o.color, o.color) : ink, bad = color('--bad', '#c9382d'), band = color('--band', '#e6e2d8'), muted = color('--mid', '#5f5c55'), faint = color('--faint', '#8f8b82'), line = color('--line', '#dfdcd5');
     var s = '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + (H - B) + '" y2="' + (H - B) + '" stroke="' + line + '"/>';
     if (o.band) {
       var b0 = Math.max(lo, o.band[0]), b1 = Math.min(hi, o.band[1]);
-      s += '<rect x="' + L + '" y="' + y(b1).toFixed(1) + '" width="' + (W - L - R) + '" height="' + Math.max(1, y(b0) - y(b1)).toFixed(1) + '" fill="' + ok + '" opacity=".13"/>';
+      s += '<rect x="' + L + '" y="' + y(b1).toFixed(1) + '" width="' + (W - L - R) + '" height="' + Math.max(1, y(b0) - y(b1)).toFixed(1) + '" fill="' + band + '"/>';
     }
     if (o.threshold !== undefined && o.threshold !== null) {
-      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(o.threshold).toFixed(1) + '" y2="' + y(o.threshold).toFixed(1) + '" stroke="' + bad + '" stroke-dasharray="5 4" opacity=".8"/>' +
-           '<text x="' + (W - R) + '" y="' + (y(o.threshold) - 4).toFixed(1) + '" text-anchor="end" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + bad + '">alert level</text>';
+      s += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(o.threshold).toFixed(1) + '" y2="' + y(o.threshold).toFixed(1) + '" stroke="' + muted + '" stroke-dasharray="5 4"/>' +
+           '<text x="' + (W - R) + '" y="' + (y(o.threshold) - 4).toFixed(1) + '" text-anchor="end" class="ct" font-size="11" font-family="' + FONT + '" fill="' + muted + '">alert level</text>';
     }
     (o.markers || []).forEach(function (m) {
       var mt = new Date(m).getTime(); if (mt < t0 || mt > t1) return;
       s += '<line x1="' + x(mt).toFixed(1) + '" x2="' + x(mt).toFixed(1) + '" y1="' + T + '" y2="' + (H - B) + '" stroke="' + bad + '" stroke-width="1.5"/>';
     });
     var path = points.map(function (p, i) { return x(ts[i]).toFixed(1) + ',' + y(p.v).toFixed(1); }).join(' ');
-    s += '<polygon fill="' + accent + '" opacity=".07" points="' + x(ts[0]).toFixed(1) + ',' + (H - B) + ' ' + path + ' ' + x(ts[ts.length - 1]).toFixed(1) + ',' + (H - B) + '"/>';
-    s += '<polyline fill="none" stroke="' + accent + '" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" points="' + path + '"/>';
-    s += '<text x="' + (L + 2) + '" y="' + (T + 8) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + fmt(dhi, kind) + '</text>';
-    if (!flat) s += '<text x="' + (L + 2) + '" y="' + (H - B - 4) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + fmt(o.floor !== undefined ? Math.min(dlo, o.floor) : dlo, kind) + '</text>';
-    s += '<text x="' + L + '" y="' + (H - 5) + '" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t0) + '</text><text x="' + (W - R) + '" y="' + (H - 5) + '" text-anchor="end" class="ct" font-size="11" font-family="Public Sans, system-ui, sans-serif" fill="' + muted + '">' + clock(t1) + ' ' + ZONE_LABEL + '</text>';
+    s += '<polygon fill="' + accent + '" opacity=".08" points="' + x(ts[0]).toFixed(1) + ',' + (H - B) + ' ' + path + ' ' + x(ts[ts.length - 1]).toFixed(1) + ',' + (H - B) + '"/>';
+    s += '<polyline fill="none" stroke="' + accent + '" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" points="' + path + '"/>';
+    s += '<text x="' + (L + 2) + '" y="' + (T + 8) + '" class="ct" font-size="11" font-family="' + FONT + '" fill="' + muted + '">' + fmt(dhi, kind) + '</text>';
+    if (!flat) s += '<text x="' + (L + 2) + '" y="' + (H - B - 4) + '" class="ct" font-size="11" font-family="' + FONT + '" fill="' + muted + '">' + fmt(o.floor !== undefined ? Math.min(dlo, o.floor) : dlo, kind) + '</text>';
+    s += '<text x="' + L + '" y="' + (H - 5) + '" class="ct" font-size="11" font-family="' + FONT + '" fill="' + muted + '">' + clock(t0) + '</text><text x="' + (W - R) + '" y="' + (H - 5) + '" text-anchor="end" class="ct" font-size="11" font-family="' + FONT + '" fill="' + muted + '">' + clock(t1) + ' ' + ZONE_LABEL + '</text>';
     s += '<line id="cx" y1="' + T + '" y2="' + (H - B) + '" stroke="' + muted + '" opacity="0"/><circle id="cd" r="3.5" fill="' + accent + '" opacity="0"/>';
     host.style.position = 'relative';
     host.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + (o.label || 'chart') + '">' + s + '</svg><div class="tip"></div>');

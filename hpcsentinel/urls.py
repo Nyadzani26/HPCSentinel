@@ -10,6 +10,7 @@ urlpatterns = [
     path("accounts/logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("health/", views.health, name="health"),
     path("", views.home, name="home"),
+    path("nodes/", views.nodes, name="nodes"),
     path("nodes/<str:name>/", views.node_detail, name="node_detail"),
     path("alerts/", views.alert_list, name="alert_list"),
     path("alerts/bulk/", views.alert_bulk, name="alert_bulk"),

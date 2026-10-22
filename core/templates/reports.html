@@ -3,22 +3,22 @@
 {% block title %}Reports · HPCSentinel{% endblock %}
 {% block content %}
 <div class="head"><div><h1>Reports</h1>
-  <p class="muted">A daily, weekly and monthly summary is written automatically when each period ends, so there is nothing to generate. Open one to read it, print it or save it as a PDF, or download the figures as a spreadsheet.</p></div></div>
+  <p>A daily, weekly and monthly summary is written automatically when each period ends, so there is nothing to generate. Open one to read it, print it or save it as a PDF, or download the figures as a spreadsheet.</p></div></div>
 {% if not any %}
 <div class="notice">No report has been written yet. The first daily report appears after the platform has watched the cluster for a full day. You can already open a "so far" report below.</div>
 {% endif %}
-<div class="grid3">
+<div class="three">
 {% for g in groups %}
-  <div class="card">
+  <section class="panel">
     <h2>{{ g.label }}</h2>
-    <p><a class="btn small" href="{% url 'report_now' g.kind %}">{{ g.so_far }}</a></p>
+    <div class="pb"><a class="btn s sm" href="{% url 'report_now' g.kind %}">{{ g.so_far }}</a></div>
     {% if g.reports %}
-    <table><tbody>
-      {% for r in g.reports %}<tr class="link"><td><a href="{% url 'report_detail' r.pk %}">{{ r.data.label }}</a>
-        <div class="muted small">{{ r.data.alerts.opened }} alert{{ r.data.alerts.opened|pluralize }}{% if r.data.alerts.recovered_unreviewed %} · {{ r.data.alerts.recovered_unreviewed }} to review{% endif %}</div></td></tr>{% endfor %}
-    </tbody></table>
-    {% else %}<p class="muted small">None yet.</p>{% endif %}
-  </div>
+    <div class="reports-list">
+      {% for r in g.reports %}<a href="{% url 'report_detail' r.pk %}">{{ r.data.label }}
+        <small>{{ r.data.alerts.opened }} alert{{ r.data.alerts.opened|pluralize }}{% if r.data.alerts.recovered_unreviewed %} · {{ r.data.alerts.recovered_unreviewed }} to review{% endif %}</small></a>{% endfor %}
+    </div>
+    {% else %}<p class="pfoot">None yet.</p>{% endif %}
+  </section>
 {% endfor %}
 </div>
 {% endblock %}

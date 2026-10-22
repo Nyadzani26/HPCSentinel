@@ -220,6 +220,7 @@ event, grey not scored. They are used the same way in the tiles, pills, chart ba
   The first redesign counted them twice and showed "2 nodes need attention" beside a tally of 24.
 - **Type.** Bricolage Grotesque for headings and the large numbers, Public Sans for text. Both are bundled
   (`static/core/fonts`, OFL licences included), so the page needs no external font service on a cluster network.
+  *Replaced in the fourth pass below by one family, Inter Tight.*
 - **Motion.** One reveal of the map when the Overview opens. Reduced motion is respected. Light and dark follow
   the system setting. Everything works down to 390 px wide; on a phone the map scrolls and opens at "now".
 
@@ -272,6 +273,44 @@ that has a title has a tinted title band.
 against old CSS looks unorganised. Their addresses now carry a fingerprint of their content
 (`sentinel.css?v=abc1234` and `watch.js?v=abc1234`, `core/context.py`), which changes whenever either file does, and the same value is shown
 in the footer ("interface abc1234") so a person can tell which version they are looking at.
+
+### Fourth pass: list and detail, a Nodes tab (22 Oct 2026, afternoon)
+
+**Why.** The third pass was consistent but still looked like a template: soft cards, two display fonts, a node table
+that pushed the history map down the Overview, and an Alerts page that was a table you had to leave to read anything.
+Twelve mock screens were drawn first (one layout per page, shared parts), the "list and detail" Alerts page and the
+"node table" Nodes page were chosen, and the rest was built to match.
+
+**One look.** A deep-green top bar, panels with a title band, a map of the chassis on the left of every page about nodes
+and alerts, ink-coloured buttons. Colour is still reserved for state (red unusual, amber under review, purple cluster
+event, grey normal, dashed not scored). Light only: the dark theme was removed because a second palette doubled the
+screens to check and nobody had asked for it. One family, Inter Tight (bundled, OFL), replaces the two display fonts;
+the old font files and licences were deleted.
+
+**Pages.**
+- **Overview.** Map and cluster events on the left. On the right: the headline, what needs attention, and the last
+  24 hours as two canvases that share one time axis (`watch.js`): a line for the score of every node, with the alert
+  level dashed, above the node-by-time squares. The node table moved off this page.
+- **Nodes (new tab, `views.nodes`, `nodes.html`).** Every node in one table: state, chassis, a small score line for
+  the last day, score, CPU, memory and the latest alert, with filter buttons and search. A "Last 24 hours" line is
+  drawn from the same data as the Overview chart (`_spark`), so the two cannot disagree.
+- **Alerts (`alerts.html`, one template for the list page and the detail page).** Left: tabs with counts (Active,
+  Recovered, Reviewed, All), find by node or date, tick boxes for bulk review, one-click Real fault / False alarm.
+  Middle: the open alert (what changed, why it was flagged, the progress strip Opened, Being looked at, Recovered,
+  Reviewed, where a step nobody used is struck through). Right: the map with the alert's node outlined, the review
+  form and the activity log. The list page opens the first alert beside the list, so there is no empty state to click
+  through. The tab that used to be called "Needs review" is called "Recovered", the same word as the alert's status.
+- **Node, Event, Reports, Settings, Users, Sign in** use the same panels. The node and event pages show the map
+  (the event page outlines the nodes that changed together and dims the rest).
+
+**Smaller screens.** Below 1120 px the top bar wraps and the navigation takes its own row; below 1000 px the side
+columns stack under the main column, and on the Alerts list page the list comes first. Secondary table columns
+(`.wide-only`) are hidden between 1000 and 1360 px. A throwaway script measured every page at 390, 820, 1024, 1180,
+1280 and 1366 px for horizontal overflow; it found and fixed the top bar at 820 px, the nodes table at 1024 px and the
+report buttons at 390 px.
+
+**What was dropped on purpose.** Slot numbers on the map tiles (the tile shows the number from the node name instead),
+the dark theme, and the second display font.
 
 ## Chassis layout (22 Oct 2026)
 

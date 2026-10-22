@@ -34,6 +34,16 @@ def alert_headline(alert):
     return display.headline(ex.get("latest") or ex, alert.node.name)
 
 
+@register.simple_tag
+def alert_what(alert):
+    """The headline without the node's name in front of it, for lists where the node is already shown."""
+    text = alert_headline(alert)
+    prefix = f"{alert.node.name}: "
+    if text.startswith(prefix):
+        text = text[len(prefix):]
+    return text[:1].upper() + text[1:]
+
+
 @register.filter
 def span(value):
     """'25 min', '2 h 10 min' or '3 days' for a length of time."""

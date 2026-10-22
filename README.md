@@ -43,9 +43,10 @@ Notes:
 
 ## What you can do in the web interface
 
-* **Fleet** (home): a tile for every node, coloured Normal, Unusual, Under review, or Unreliable / no baseline, with a banner when Prometheus is unreachable.
+* **Overview** (home): the chassis map, what needs attention, and the last 24 hours (the score of every node, and what each node was doing), with a banner when Prometheus is unreachable.
+* **Nodes**: every node in one table, with its state, a small line for the last day, score, CPU, memory and latest alert, and filters and search.
 * **Node page**: load state, the three scores, a score chart with the alert threshold, and one chart per metric with a red line where an alert was raised.
-* **Alerts**: filter by status, node and date. Each alert shows why it was raised (baseline, observed value, deviation, load state, top contributing metrics, the node's history) and is acknowledged, closed with an outcome (Confirmed or False alarm), noted, or reopened by an Administrator. Every action records who and when.
+* **Alerts**: a list on the left (Active, Recovered, Reviewed, All; filter by node and date) and the open alert beside it. Each alert shows why it was raised (baseline, observed value, deviation, load state, top contributing metrics, the node's history) and is acknowledged, closed with an outcome (Confirmed or False alarm), noted, or reopened by an Administrator. Every action records who and when.
 * **Controls** (Administrator): Prometheus address and test, alert threshold and persistence, data-readiness report, train / replay / evaluate requests, excluded periods, and the experiment-log upload.
 * **Users** (Administrator): create users, set roles, deactivate.
 

@@ -1,13 +1,13 @@
 {% load sentinel %}
 {% if events %}
-<section class="card flush" aria-labelledby="events-h">
-  <h2 id="events-h">Cluster-wide events <span class="count quiet">{{ events|length }}</span></h2>
+<section class="panel" aria-labelledby="events-h">
+  <h2 id="events-h"><span>Cluster-wide events <span class="cnt">{{ events|length }}</span></span></h2>
   {% for e in events|still_going %}
-  <div class="row event live" role="status">
+  <div class="evrow" role="status">
     <h3>Cluster-wide event · {{ e.peak_nodes }} of {{ e.peak_reliable }} nodes changed at once and it is <strong>still going</strong>.</h3>
     <p class="muted">Started {{ e.started_at|ago }} ({{ e.started_at|date:"H:i" }} {{ tz_label }}).
       This is shown as one event instead of {{ e.peak_nodes }} separate alerts, because that many nodes changing together points to something shared (power, cooling, network, the scheduler, or the cluster being switched on or off) rather than {{ e.peak_nodes }} faulty nodes.</p>
-    <a class="btn small" href="{% url 'event_detail' e.pk %}">Details</a>
+    <a class="btn s sm" href="{% url 'event_detail' e.pk %}">Details</a>
   </div>
   {% endfor %}
   {% with past=events|ended %}{% if past %}

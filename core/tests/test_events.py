@@ -174,7 +174,7 @@ class EventNodeLabelTests(TestCase):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.context["needs_attention"], 0)
         self.assertEqual(response.context["in_event"], 2)
-        page = response.content.decode()
+        page = self.client.get(reverse("nodes")).content.decode()               # every node's state is on the Nodes page
         self.assertEqual(page.count('data-state="shared"'), 2)
         self.assertEqual(page.count('data-state="unusual"'), 0)
 

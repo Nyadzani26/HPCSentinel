@@ -7,8 +7,13 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import Alert, AlertAction, CycleRun, ExcludedPeriod, ExperimentEntry, Job, ModelVersion, Node, NodeWindow, User
+from core.models import Alert, AlertAction, Chassis, ClusterEvent, CycleRun, ExcludedPeriod, ExperimentEntry, Job, ModelVersion, Node, NodeWindow, User
 from core.tests.helpers import make_alert, make_config, make_model, make_node, make_user
+
+
+def alert_column(html):
+    """The list of alerts on the left of the Alerts pages, without the chassis map and the open alert beside it."""
+    return html.split('class="sidecol listcol"')[1].split("</aside>")[0]
 
 
 class FleetScreenTests(TestCase):
@@ -37,7 +42,7 @@ class FleetScreenTests(TestCase):
         make_alert(Node.objects.get(name="compute02"), config=config, model=model)
         a = make_alert(Node.objects.get(name="compute03"), config=config, model=model)
         a.acknowledge()
-        html = self.client.get(reverse("home")).content.decode()
+        html = self.client.get(reverse("nodes")).content.decode()           # the Nodes page lists every node with its state
         self.assertEqual(html.count('data-state="normal"'), 1)
         self.assertEqual(html.count('data-state="unusual"'), 1)
         self.assertEqual(html.count('data-state="review"'), 1)
@@ -186,12 +191,12 @@ class TriageTests(TestCase):
     def test_tabs_separate_active_recovered_and_reviewed_alerts(self):
         make_alert(make_node("compute05"), status="RESOLVED")
         make_alert(make_node("compute09"), status="CLOSED", outcome="FALSE_ALARM")
-        listing = lambda tab: self.client.get(reverse("alert_list") + f"?status={tab}").content.decode()  # noqa: E731
+        listing = lambda tab: alert_column(self.client.get(reverse("alert_list") + f"?status={tab}").content.decode())  # noqa: E731
         active, review, closed = listing("live"), listing("review"), listing("closed")
         self.assertIn("compute01", active); self.assertNotIn("compute05", active); self.assertNotIn("compute09", active)
         self.assertIn("compute05", review); self.assertNotIn("compute01", review)
         self.assertIn("compute09", closed); self.assertNotIn("compute05", closed)
-        self.assertIn("Needs review<span class=\"n\">1</span>", active)   # counts show without opening the tab
+        self.assertIn("Recovered<span class=\"n\">1</span>", active)   # counts show without opening the tab
 
     def test_empty_active_tab_points_to_recovered_alerts(self):
         self.alert.status = "RESOLVED"
@@ -241,10 +246,10 @@ class TriageTests(TestCase):
 
     def test_list_filters(self):
         make_alert(make_node("compute09"), status="CLOSED", outcome="FALSE_ALARM")
-        live = self.client.get(reverse("alert_list")).content.decode()
+        live = alert_column(self.client.get(reverse("alert_list")).content.decode())
         self.assertIn("compute01", live)
         self.assertNotIn("compute09", live)
-        self.assertIn("compute09", self.client.get(reverse("alert_list") + "?status=all").content.decode())
+        self.assertIn("compute09", alert_column(self.client.get(reverse("alert_list") + "?status=all").content.decode()))
 
 
 EXAMPLE = str(Path(__file__).resolve().parents[2] / "config" / "hpcsentinel.example.yml")
@@ -426,7 +431,7 @@ class AlertFilterTests(TestCase):
         make_alert(make_node("compute02"))
 
     def test_filter_by_node(self):  # FR-22
-        html = self.client.get(reverse("alert_list") + "?node=compute02").content.decode()
+        html = alert_column(self.client.get(reverse("alert_list") + "?node=compute02").content.decode())
         self.assertIn("compute02", html)
         self.assertNotIn("compute01", html)
 
@@ -435,3 +440,66 @@ class AlertFilterTests(TestCase):
         self.assertContains(self.client.get(reverse("alert_list") + f"?from={today}&to={today}"), "compute01")
         self.assertNotContains(self.client.get(reverse("alert_list") + "?from=2020-01-01&to=2020-01-02"), "compute01")
         self.assertContains(self.client.get(reverse("alert_list") + "?from=banana"), "not a date")
+
+
+class NodesPageTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_user("viewer"))
+
+    def test_the_nodes_page_needs_a_sign_in(self):
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("nodes")).status_code, 302)
+
+    def test_every_page_has_a_nodes_tab(self):
+        make_node("compute01")
+        for name in ("home", "nodes", "alert_list", "reports"):
+            self.assertContains(self.client.get(reverse(name)), f'href="{reverse("nodes")}"')
+
+    def test_the_page_lists_each_node_with_filters_and_search(self):
+        for name in ("compute01", "compute02"):
+            make_node(name)
+        page = self.client.get(reverse("nodes")).content.decode()
+        self.assertIn('data-name="compute01"', page)
+        self.assertIn('data-name="compute02"', page)
+        self.assertIn('id="q"', page)                                    # search box
+        self.assertIn('data-f="attention"', page)                        # filter buttons
+
+    def test_the_page_names_each_nodes_chassis(self):
+        Node.objects.create(name="compute01", source_label="c01", chassis=Chassis.objects.create(name="Chassis 1"))
+        page = self.client.get(reverse("nodes")).content.decode()
+        self.assertIn("Chassis 1", page)
+        self.assertIn("<th", page.split("Chassis</th>")[0])               # the Chassis column exists
+
+    def test_the_overview_no_longer_carries_the_node_table(self):
+        make_node("compute01")
+        page = self.client.get(reverse("home")).content.decode()
+        self.assertNotIn('data-name="compute01"', page)
+        self.assertIn(reverse("nodes"), page)
+
+
+class AlertPageLayoutTests(TestCase):
+    def setUp(self):
+        self.client.force_login(make_user("op"))
+
+    def test_the_first_alert_is_open_beside_the_list_with_the_chassis_map(self):
+        alert = make_alert(make_node("compute01"))
+        page = self.client.get(reverse("alert_list")).content.decode()
+        self.assertIn("Was it a real fault?", page)
+        self.assertIn('class="t bad sel"', page)                          # its node is outlined on the map
+        self.assertIn(reverse("alert_detail", args=[alert.pk]), page)
+
+    def test_an_alert_opened_from_another_tab_still_appears_in_the_list(self):
+        alert = make_alert(make_node("compute05"), status="CLOSED", outcome="FALSE_ALARM")
+        listing = alert_column(self.client.get(reverse("alert_detail", args=[alert.pk]) + "?status=live").content.decode())
+        self.assertIn("compute05", listing)
+
+    def test_node_and_event_pages_show_the_map(self):
+        node = make_node("compute03")
+        page = self.client.get(reverse("node_detail", args=["compute03"])).content.decode()
+        self.assertIn("Chassis map", page)
+        self.assertIn(" sel", page)
+        event = ClusterEvent.objects.create(started_at=timezone.now(), last_seen_at=timezone.now(), peak_nodes=1, peak_reliable=1, nodes=["compute03"])
+        page = self.client.get(reverse("event_detail", args=[event.pk])).content.decode()
+        self.assertIn("Chassis map", page)
+        self.assertIn("changed together", page)
+        self.assertIsNotNone(node)

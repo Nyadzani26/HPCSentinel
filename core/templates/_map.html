@@ -1,0 +1,12 @@
+{% comment %}The chassis map: one tile per node, grouped by chassis in the order they stand. Needs map_groups; `selected` outlines one node and `marked` (a list of names) outlines several and dims the rest.{% endcomment %}
+<div class="mh"><span>Chassis map</span><span>click a node to open it</span></div>
+{% for g in map_groups %}
+<div class="mc">
+  {% if g.name %}<h4><span>{{ g.name }}</span><span>{{ g.span }}</span></h4>{% endif %}
+  <div class="tg">{% for t in g.tiles %}<a class="t {{ t.map }}{% if t.node.name == selected or t.node.name in marked %} sel{% elif marked %} dim{% endif %}" href="{% url 'node_detail' t.node.name %}" title="{{ t.node.name }} · {{ t.label }}" aria-label="{{ t.node.name }}, {{ t.label }}">{{ t.short }}</a>{% endfor %}</div>
+</div>
+{% endfor %}
+<div class="lg" aria-label="Key">
+  <span><i class="k-n"></i>Normal</span><span><i class="k-u"></i>Unusual</span><span><i class="k-w"></i>Under review</span>
+  <span><i class="k-e"></i>In a cluster event</span><span><i class="k-x"></i>Not scored</span>
+</div>

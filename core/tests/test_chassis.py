@@ -127,8 +127,8 @@ class SettingsBoxTests(TestCase):
     def test_the_overview_then_shows_the_chassis(self):
         self.post("Chassis 1: compute01-compute12\nChassis 2: compute13-compute24")
         page = self.client.get(reverse("home")).content.decode()
-        self.assertEqual(page.count('class="group-title"'), 2)
-        self.assertLess(page.index("Chassis 1 <small>12 nodes"), page.index("Chassis 2 <small>12 nodes"))
+        self.assertEqual(page.count("<h4><span>"), 2)
+        self.assertLess(page.index("<span>Chassis 1</span><span>compute01–12"), page.index("<span>Chassis 2</span><span>compute13–24"))
 
     def test_a_mistake_is_explained_and_nothing_changes(self):
         self.post("Chassis 1: compute01-compute12")

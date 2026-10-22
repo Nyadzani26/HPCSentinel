@@ -1,29 +1,37 @@
 {% extends "base.html" %}
 {% load sentinel %}
 {% block title %}Cluster-wide event · HPCSentinel{% endblock %}
+{% block wrapclass %} side{% endblock %}
+{% block sidecol %}
+<aside class="sidecol" aria-label="Chassis map"><div class="stick">
+  {% include "_map.html" %}
+  <p class="muted small">The outlined nodes are the {{ nodes|length }} that changed together.</p>
+</div></aside>
+{% endblock %}
 {% block content %}
 <div class="crumbs"><a href="{% url 'alert_list' %}">Alerts</a> / Cluster-wide event</div>
 <div class="head"><div>
   <h1>{{ event.peak_nodes }} of {{ event.peak_reliable }} nodes changed at once</h1>
-  <p class="muted">Started {{ event.started_at|ago }} ({{ event.started_at|date:"j M Y, H:i" }} {{ tz_label }}) ·
+  <p>Started {{ event.started_at|ago }} ({{ event.started_at|date:"j M Y, H:i" }} {{ tz_label }}) ·
     {% if event.is_active %}<strong style="color:var(--ink)">still going</strong>, {{ event.lasted|span }} so far{% else %}lasted {{ event.lasted|span }}, ended {{ event.ended_at|date:"H:i" }} {{ tz_label }}{% endif %}</p>
-</div></div>
-<div class="two">
-  <div>
-    <div class="card"><h2>Why this is one event, not {{ event.peak_nodes }} alerts</h2>
-      <p>When {{ share }}% of the nodes that were reporting turn unusual in the same two-minute check, independent faults are an unlikely explanation. The cause is more likely shared: the cluster being switched on or off, a power or cooling problem, a network or storage outage, or a large job starting everywhere at once.</p>
-      <p>HPCSentinel therefore recorded <strong>one event</strong> and held back the {{ event.peak_nodes }} individual alerts. If a node is still unusual after the event ends, it raises its own alert straight away, so a real fault underneath is not hidden.</p>
-      <p class="muted small">Nodes that already had an alert before the event keep updating it as normal.</p>
-    </div>
-    <div class="card" style="margin-top:1rem"><h2>What changed</h2>
-      {% if causes %}<table><thead><tr><th>Main cause</th><th class="num">Nodes</th></tr></thead><tbody>
-        {% for c in causes %}<tr><td>{{ c.label }}</td><td class="num">{{ c.nodes }}</td></tr>{% endfor %}</tbody></table>
-      <p class="muted small" style="margin-top:.6rem">The metric that moved furthest from normal on each node, counted at the busiest moment of the event.</p>
-      {% else %}<p class="muted">No detail was recorded.</p>{% endif %}
-    </div>
-  </div>
-  <div class="card"><h2>Nodes involved ({{ nodes|length }})</h2>
-    <div class="chips loose">{% for n in nodes %}<a class="chip" href="{% url 'node_detail' n %}">{{ n }}</a>{% endfor %}</div>
-  </div>
 </div>
+<div class="acts"><span class="pill shared">{% if event.is_active %}Still going{% else %}Ended{% endif %}</span></div></div>
+
+<section class="panel"><h2>Why this is one event, not {{ event.peak_nodes }} alerts <em>{{ share }}% of the nodes that were reporting</em></h2>
+  <div class="pb">
+    <div class="bar" aria-hidden="true" style="margin-top:0"><span style="width:{{ share }}%;background:var(--evt)"></span></div>
+    <p>When {{ share }}% of the nodes that were reporting turn unusual in the same two-minute check, independent faults are an unlikely explanation. The cause is more likely shared: the cluster being switched on or off, a power or cooling problem, a network or storage outage, or a large job starting everywhere at once.</p>
+    <p>HPCSentinel therefore recorded <strong>one event</strong> and held back the {{ event.peak_nodes }} individual alerts. If a node is still unusual after the event ends, it raises its own alert straight away, so a real fault underneath is not hidden.</p>
+    <p class="muted small">Nodes that already had an alert before the event keep updating it as normal.</p>
+  </div>
+</section>
+<section class="panel"><h2>What changed</h2>
+  {% if causes %}<table><thead><tr><th>Main cause</th><th class="num">Nodes</th></tr></thead><tbody>
+    {% for c in causes %}<tr><td>{{ c.label }}</td><td class="num">{{ c.nodes }}</td></tr>{% endfor %}</tbody></table>
+  <p class="pfoot">The metric that moved furthest from normal on each node, counted at the busiest moment of the event.</p>
+  {% else %}<div class="pb"><p class="muted">No detail was recorded.</p></div>{% endif %}
+</section>
+<section class="panel"><h2>Nodes involved <span class="cnt">{{ nodes|length }}</span></h2>
+  <div class="pb chips">{% for n in nodes %}<a class="chip" href="{% url 'node_detail' n %}">{{ n }}</a>{% endfor %}</div>
+</section>
 {% endblock %}

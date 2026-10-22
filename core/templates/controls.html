@@ -11,9 +11,8 @@
 </div>
 
 <div data-panel="source">
-  <div class="grid2">
-    <div class="card">
-      <h2>Prometheus and alert rules</h2>
+  <div class="two">
+    <section class="panel"><h2>Prometheus and alert rules</h2><div class="pb">
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="settings">
         {{ settings_form.non_field_errors }}
         <label for="id_prometheus_url">Prometheus address<span class="hint">Where the platform reads metrics. It only ever reads; it never changes anything.</span>{{ settings_form.prometheus_url }}{{ settings_form.prometheus_url.errors }}</label>
@@ -34,38 +33,35 @@
           <button type="submit" name="action" value="test_connection" class="btn secondary" formnovalidate>Test connection</button>
         </div>
       </form>
-    </div>
-    <div style="display:grid;gap:var(--gap);align-content:start">
-      <div class="card">
-        <h2>Is the data good enough?</h2>
+    </div></section>
+    <div class="stack">
+      <section class="panel"><h2>Is the data good enough?</h2><div class="pb">
         <p class="muted">Checks that Prometheus has each metric for every node, and warns when every node reports the same value, which usually means it is not measured per node.</p>
         <form method="post">{% csrf_token %}<input type="hidden" name="action" value="readiness"><button type="submit" class="btn secondary">Check data now</button></form>
-      </div>
-      <div class="card">
-        <h2>Chassis</h2>
+      </div></section>
+      <section class="panel"><h2>Chassis</h2><div class="pb">
         <p class="muted">Say which nodes sit in which chassis and the Overview shows them in that order. This only arranges the screen. It never changes how a node is scored.</p>
         <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="chassis">
           {{ chassis_form.non_field_errors }}
           <label for="id_layout">Layout<span class="hint">One chassis per line, for example <code>Chassis 1: compute01-compute12</code>. Separate single nodes with commas. Saving replaces the old layout, and a node that is not listed has no chassis.</span>{{ chassis_form.layout }}{{ chassis_form.layout.errors }}</label>
           <div><button type="submit" class="btn">Save chassis</button></div>
         </form>
-      </div>
+      </div></section>
     </div>
   </div>
   {% if readiness %}
-  <section><div class="card flush"><h2>Data check</h2><table>
+  <section class="panel"><h2>Data check</h2><table>
     <thead><tr><th>Metric</th><th>Nodes with data</th><th>Result</th><th>What to do</th></tr></thead>
     <tbody>{% for r in readiness %}<tr><td>{{ r.name|metric_label }}<div class="muted small">{{ r.name }}</div></td><td>{{ r.nodes }} of {{ r.expected }}</td>
       <td><span class="pill {% if r.status == 'Present' %}normal{% elif r.status == 'Partial' or r.status == 'Suspect' %}review{% else %}unusual{% endif %}">{{ r.status }}</span></td>
       <td>{{ r.note|default:"" }}{% if r.status == "Missing" %}Not available. This metric is skipped.{% endif %}</td></tr>{% endfor %}</tbody>
-  </table></div></section>
+  </table></section>
   {% endif %}
 </div>
 
 <div data-panel="models" hidden>
-  <div class="grid2">
-    <div class="card">
-      <h2>Learning</h2>
+  <div class="two">
+    <section class="panel"><h2>Learning</h2><div class="pb">
       {% if learning.model %}
         <p><span class="pill normal">Learned</span> <strong>{{ learning.model.label }}</strong> is in use, learned {{ learning.model.trained_at|ago }}{% if learning.origin == "auto" %} automatically{% endif %}.</p>
         {% for f in learning.facts %}<p class="muted">{{ f }}</p>{% endfor %}
@@ -80,83 +76,82 @@
       {% if learning.state.checked_at %}<p class="muted small">Last checked: {{ learning.state.message }}</p>{% endif %}
       <form method="post" style="margin-top:.8rem">{% csrf_token %}<input type="hidden" name="action" value="learn_now"><button type="submit" class="btn secondary">Learn again now</button></form>
       <p class="muted small" style="margin-top:.5rem">You never have to do this. The platform learns the first model by itself, learns again when enough new data has arrived, and refreshes weekly. Faults and stress tests are filtered out automatically.</p>
-    </div>
-    <div class="card">
-      <h2>Models</h2>
+    </div></section>
+    <section class="panel"><h2>Models</h2><div class="pb">
       {% if models %}
       <table><thead><tr><th>Name</th><th>Learned</th><th>Data used</th></tr></thead><tbody>
       {% for m in models %}<tr><td><strong>{{ m.label }}</strong><div class="muted small">{% if m.baselines.origin == "auto" %}Automatic{% else %}Manual{% endif %} · {{ m.baselines.nodes }} nodes</div></td><td>{{ m.trained_at|ago }}</td><td class="small">{{ m.train_start|date:"j M H:i" }} – {{ m.train_end|date:"j M H:i" }}</td></tr>{% endfor %}
       </tbody></table>
       <p class="muted small" style="margin-top:.6rem">The newest model is the one in use. Earlier ones are kept so any alert can be traced to the model that raised it.</p>
       {% else %}<div class="empty"><strong>No model yet</strong>Learning starts by itself once there is enough data.</div>{% endif %}
-    </div>
+    </div></section>
   </div>
-  <section><div class="card flush"><h2>Recent activity</h2><table>
+  <section class="panel"><h2>Recent activity</h2><table>
     <thead><tr><th>Job</th><th>Status</th><th>Requested</th><th>Result</th></tr></thead>
     <tbody>{% for j in jobs %}<tr><td>{{ j.get_type_display }}</td><td><span class="pill {{ j.status }}">{{ j.get_status_display }}</span></td><td>{{ j.requested_at|ago }}</td><td>{{ j.message|default:"–" }}</td></tr>
     {% empty %}<tr><td colspan="4" class="muted">Nothing has been requested yet.</td></tr>{% endfor %}</tbody>
-  </table></div></section>
+  </table></section>
 </div>
 
 <div data-panel="advanced" hidden>
   <p class="muted" style="max-width:48rem">Everything here is optional. The platform works without it. These tools are for validating the detector against faults you caused on purpose, and for marking maintenance.</p>
   <details class="adv"><summary>Learn from a specific period</summary>
     <p class="muted" style="max-width:48rem">Normally the platform chooses its own learning data. Use this only to learn from a period you know was healthy, for example to reproduce a result for a report.</p>
-    <div class="card" style="max-width:30rem"><form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
+    <section class="panel" style="max-width:30rem"><div class="pb"><form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="train">
       {{ train_form.non_field_errors }}
       <label for="id_start">From ({{ tz_label }}){{ train_form.start }}{{ train_form.start.errors }}</label>
       <label for="id_end">To ({{ tz_label }}){{ train_form.end }}{{ train_form.end.errors }}</label>
       <label for="id_label">Name<span class="hint">Optional.</span>{{ train_form.label }}</label>
-      <button type="submit" class="btn">Learn from this period</button></form></div>
+      <button type="submit" class="btn">Learn from this period</button></form></div></section>
   </details>
   <details class="adv"><summary>Validate the detector (replay and evaluate)</summary>
   <p class="muted" style="max-width:48rem">To find out how well detection works, replay a past period through the same code that watches the cluster live, then compare the alerts it raises with the problems you caused on purpose. Use a period the model was not trained on.</p>
-  <div class="grid2">
-    <div class="card"><h2>1. Replay a period</h2>
+  <div class="two">
+    <section class="panel"><h2>1. Replay a period</h2><div class="pb">
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="replay">
         {{ replay_form.non_field_errors }}
         <label for="id_replay-model">Model{{ replay_form.model }}{{ replay_form.model.errors }}</label>
         <label for="id_replay-start">From ({{ tz_label }}){{ replay_form.start }}{{ replay_form.start.errors }}</label>
         <label for="id_replay-end">To ({{ tz_label }}){{ replay_form.end }}{{ replay_form.end.errors }}</label>
-        <button type="submit" class="btn">Replay</button></form></div>
-    <div class="card"><h2>2. Log the problems you caused</h2>
+        <button type="submit" class="btn">Replay</button></form></div></section>
+    <section class="panel"><h2>2. Log the problems you caused</h2><div class="pb">
       <p class="muted small">Upload a CSV with the columns <code>node, anomaly_type, start, end</code> and optionally <code>intensity</code>. Types: cpu, memory, io, network, other. A bad row rejects the whole file.</p>
       <form method="post" enctype="multipart/form-data" class="form">{% csrf_token %}<input type="hidden" name="action" value="upload">
         {{ upload_form.file }}{{ upload_form.file.errors }}<button type="submit" class="btn secondary">Import log</button></form>
       {% if experiments %}<p class="small muted" style="margin-top:.7rem">{{ experiments|length }} most recent entries:</p>
-      <table><tbody>{% for x in experiments %}<tr><td>{{ x.node.name }}</td><td>{{ x.get_anomaly_type_display }}</td><td class="small">{{ x.start_at|date:"j M H:i" }}–{{ x.end_at|date:"H:i" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</div>
-    <div class="card"><h2>3. Evaluate</h2>
+      <table><tbody>{% for x in experiments %}<tr><td>{{ x.node.name }}</td><td>{{ x.get_anomaly_type_display }}</td><td class="small">{{ x.start_at|date:"j M H:i" }}–{{ x.end_at|date:"H:i" }}</td></tr>{% endfor %}</tbody></table>{% endif %}</div></section>
+    <section class="panel"><h2>3. Evaluate</h2><div class="pb">
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="evaluate">
         {{ evaluate_form.non_field_errors }}
         <label for="id_eval-model">Model{{ evaluate_form.model }}{{ evaluate_form.model.errors }}</label>
         <label for="id_eval-start">From ({{ tz_label }}){{ evaluate_form.start }}{{ evaluate_form.start.errors }}</label>
         <label for="id_eval-end">To ({{ tz_label }}){{ evaluate_form.end }}{{ evaluate_form.end.errors }}</label>
-        <button type="submit" class="btn">Evaluate</button></form></div>
+        <button type="submit" class="btn">Evaluate</button></form></div></section>
   </div>
-  <section><div class="card flush"><h2>Results</h2><table>
+  <section class="panel"><h2>Results</h2><table>
     <thead><tr><th>Model</th><th>Period</th><th class="num">Problems found</th><th class="num">Median time to alert</th><th class="num">False alerts per node per week</th></tr></thead>
     <tbody>{% for e in evaluations %}<tr><td>{{ e.model.label }}</td><td class="small">{{ e.period_start|date:"j M H:i" }} – {{ e.period_end|date:"j M H:i" }}</td>
       <td class="num"><strong>{{ e.episodes_detected }} of {{ e.episodes_total }}</strong></td>
       <td class="num">{% if e.median_delay_seconds is None %}–{% else %}{{ e.median_delay_seconds|floatformat:0 }} s{% endif %}</td><td class="num">{{ e.false_alerts_per_node_week|floatformat:2 }}</td></tr>
     {% empty %}<tr><td colspan="5" class="muted">No evaluation yet.</td></tr>{% endfor %}</tbody>
-  </table></div></section>
+  </table></section>
 
   </details>
   <details class="adv"><summary>Maintenance and periods to ignore</summary>
   <p class="muted" style="max-width:48rem">Benchmarks, stress tests and maintenance make nodes look unusual on purpose. Mark those times and the platform will not learn from them.</p>
-  <div class="grid2">
-    <div class="card"><h2>Ignore a period</h2>
+  <div class="two">
+    <section class="panel"><h2>Ignore a period</h2><div class="pb">
       <form method="post" class="form">{% csrf_token %}<input type="hidden" name="action" value="excluded">
         {{ excluded_form.non_field_errors }}
         <label for="id_start_at">From ({{ tz_label }}){{ excluded_form.start_at }}{{ excluded_form.start_at.errors }}</label>
         <label for="id_end_at">To ({{ tz_label }}){{ excluded_form.end_at }}{{ excluded_form.end_at.errors }}</label>
         <label for="id_reason">Reason{{ excluded_form.reason }}{{ excluded_form.reason.errors }}</label>
-        <button type="submit" class="btn">Ignore this period</button></form></div>
-    <div class="card"><h2>Ignored periods</h2>
+        <button type="submit" class="btn">Ignore this period</button></form></div></section>
+    <section class="panel"><h2>Ignored periods</h2><div class="pb">
       {% if periods %}<table><thead><tr><th>Period ({{ tz_label }})</th><th>Reason</th><th></th></tr></thead><tbody>
       {% for p in periods %}<tr><td class="small">{{ p.start_at|date:"j M H:i" }} – {{ p.end_at|date:"j M H:i" }}</td><td>{{ p.reason }}</td>
         <td style="text-align:right"><form method="post" action="{% url 'excluded_delete' p.pk %}" class="inline">{% csrf_token %}<button class="btn secondary small" type="submit">Remove</button></form></td></tr>{% endfor %}
-      </tbody></table>{% else %}<div class="empty"><strong>None yet</strong>Add a period before you run stress tests.</div>{% endif %}</div>
+      </tbody></table>{% else %}<div class="empty"><strong>None yet</strong>Add a period before you run stress tests.</div>{% endif %}</div></section>
   </div>
 
   </details>

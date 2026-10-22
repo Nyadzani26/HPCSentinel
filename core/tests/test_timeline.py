@@ -106,12 +106,11 @@ class OverviewPanelTests(TestCase):
 
     def test_the_panel_is_hidden_when_nothing_needs_a_look(self):
         make_node("compute01")
-        self.assertContains(self.client.get(reverse("home")), 'class="deck solo bare"')
+        self.assertNotContains(self.client.get(reverse("home")), "Needs attention")
 
     def test_an_open_alert_fills_the_panel_with_a_link_to_it(self):
         alert = make_alert()
         page = self.client.get(reverse("home")).content.decode()
-        self.assertNotIn("bare", page.split('class="deck')[1].split('"')[0])
         self.assertIn("Needs attention", page)
         self.assertIn(reverse("alert_detail", args=[alert.pk]), page)
 
@@ -137,9 +136,9 @@ class OverviewLayoutTests(TestCase):
         Node.objects.create(name="compute01", source_label="c01", chassis=first)
         Node.objects.create(name="compute99", source_label="c99")
         page = self.client.get(reverse("home")).content.decode()
-        self.assertEqual(page.count('class="group-title"'), 3)
-        self.assertLess(page.index("Chassis 1 <small>"), page.index("Chassis 2 <small>"))
-        self.assertLess(page.index("Chassis 2 <small>"), page.index("Other nodes <small>"))
+        self.assertEqual(page.count('<div class="mc"><h4>') + page.count('<div class="mc">\n  <h4>'), 3)
+        self.assertLess(page.index("<span>Chassis 1</span>"), page.index("<span>Chassis 2</span>"))
+        self.assertLess(page.index("<span>Chassis 2</span>"), page.index("<span>Other nodes</span>"))
 
     def test_a_peer_group_is_not_a_chassis_and_does_not_split_the_list(self):
         """Peer groups decide how a node is scored, so they must not decide how the page is arranged."""
@@ -147,14 +146,15 @@ class OverviewLayoutTests(TestCase):
         Node.objects.create(name="compute01", source_label="c01", group=group)
         Node.objects.create(name="compute02", source_label="c02", group=group)
         page = self.client.get(reverse("home")).content.decode()
-        self.assertNotIn('class="group-title"', page)
+        self.assertNotIn("<h4>", page)
         self.assertNotIn("gpu nodes", page)
 
     def test_without_chassis_there_is_one_list_and_no_headings(self):
         Node.objects.create(name="compute01", source_label="c01")
         page = self.client.get(reverse("home")).content.decode()
-        self.assertNotIn('class="group-title"', page)
-        self.assertIn('data-name="compute01"', page)
+        self.assertNotIn("<h4>", page)                                       # no chassis headings on the map
+        self.assertIn(reverse("node_detail", args=["compute01"]), page)
+        self.assertIn('data-name="compute01"', self.client.get(reverse("nodes")).content.decode())
 
     def test_every_page_asks_for_the_current_stylesheet_and_shows_which_version_is_running(self):
         """The stylesheet keeps its file name between deploys, so its address carries a fingerprint to defeat stale caches."""
