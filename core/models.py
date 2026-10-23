@@ -197,6 +197,7 @@ class Alert(models.Model):
     explanation = models.JSONField()
     model = models.ForeignKey(ModelVersion, on_delete=models.PROTECT, related_name="alerts")
     config = models.ForeignKey(ConfigVersion, on_delete=models.PROTECT, related_name="alerts")
+    notified_at = models.DateTimeField(null=True, blank=True)     # when an email about this alert went out (once per alert)
 
     class Meta:
         constraints = [
@@ -290,6 +291,7 @@ class ClusterEvent(models.Model):
     nodes = models.JSONField(default=list)                    # every node involved at any point
     causes = models.JSONField(default=dict)                   # main contributing metric -> most nodes it was the main cause on
     quiet_cycles = models.PositiveIntegerField(default=0)     # consecutive ordinary cycles since the last unusual one
+    notified_at = models.DateTimeField(null=True, blank=True)     # when an email about this event went out (once per event)
 
     class Meta:
         ordering = ["-started_at"]
@@ -305,6 +307,30 @@ class ClusterEvent(models.Model):
 
     def __str__(self):
         return f"Cluster event {self.started_at:%Y-%m-%d %H:%M} ({self.peak_nodes} nodes)"
+
+
+class Notification(models.Model):
+    """One email the platform tried to send, and whether it went (FR-31). Also what limits how many go out in an hour."""
+
+    class Kind(models.TextChoices):
+        ALERTS = "ALERTS", "Alerts"
+        TEST = "TEST", "Test"
+
+    created_at = models.DateTimeField(default=timezone.now)
+    kind = models.CharField(max_length=6, choices=Kind.choices)
+    subject = models.CharField(max_length=200)
+    recipients = models.CharField(max_length=600)
+    alerts = models.PositiveIntegerField(default=0)       # alerts the email was about
+    events = models.PositiveIntegerField(default=0)       # cluster-wide events it was about
+    ok = models.BooleanField()
+    error = models.CharField(max_length=300, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["created_at"])]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} email {self.created_at:%Y-%m-%d %H:%M} ({'sent' if self.ok else 'failed'})"
 
 
 class Report(models.Model):

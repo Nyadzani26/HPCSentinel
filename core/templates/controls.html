@@ -48,6 +48,25 @@
           <div><button type="submit" class="btn">Save chassis</button></div>
         </form>
       </div></section>
+      <section class="panel"><h2>Email alerts</h2><div class="pb">
+        <p class="muted">An email when an alert opens, so you do not have to be looking at the screen. Each alert is sent once. Nothing is sent when an alert ends, for alerts you are already looking at, or for alerts that opened before you turned this on.</p>
+        {% if notify_server.configured %}<p class="small" style="margin-bottom:.8rem"><span class="pill normal">Server ready</span> Sending through {{ notify_server.host }}:{{ notify_server.port }} as {{ notify_server.sender }}.</p>
+        {% else %}<p class="small" style="margin-bottom:.8rem"><span class="pill review">Server not set up</span> Nothing can be sent yet. Add the <code>EMAIL_</code> lines to the server's <code>.env</code> file (see <code>.env.example</code>) and restart.</p>{% endif %}
+        <form method="post" class="form">{% csrf_token %}
+          {{ notify_form.non_field_errors }}
+          <label class="opt" for="id_enabled"><span class="optin">{{ notify_form.enabled }}</span><span><strong>{{ notify_form.enabled.label }}</strong></span></label>
+          <label for="id_recipients">Send to<span class="hint">One or more addresses, separated by commas or new lines (up to 10).</span>{{ notify_form.recipients }}{{ notify_form.recipients.errors }}</label>
+          <label class="opt" for="id_events"><span class="optin">{{ notify_form.events }}</span><span><strong>{{ notify_form.events.label }}</strong><span class="hint">One email for the whole event, not one per node.</span></span></label>
+          <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+            <button type="submit" name="action" value="notify" class="btn">Save email settings</button>
+            <button type="submit" name="action" value="notify_test" class="btn secondary" formnovalidate>Send a test email</button>
+          </div>
+          <div class="hint">The test goes to the addresses typed above, even if you have not saved them yet.</div>
+        </form>
+        {% if notifications %}<table style="margin-top:.8rem"><thead><tr><th>When</th><th>What</th><th>Result</th></tr></thead>
+          <tbody>{% for n in notifications %}<tr><td class="small">{{ n.created_at|date:"j M H:i" }}</td><td class="small">{{ n.subject }}<div class="muted">to {{ n.recipients }}</div></td>
+            <td>{% if n.ok %}<span class="pill normal">Sent</span>{% else %}<span class="pill unusual">Failed</span><div class="muted small">{{ n.error }}</div>{% endif %}</td></tr>{% endfor %}</tbody></table>{% endif %}
+      </div></section>
     </div>
   </div>
   {% if readiness %}

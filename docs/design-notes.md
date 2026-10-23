@@ -429,3 +429,37 @@ Slurm "allocated" does not mean the CPU is busy.
 power-supply status and power draw, fan failure, read-only filesystems, failed services (slurmd, munge). Next: pressure-stall
 metrics, uncorrectable memory errors, network link state, disk SMART. Each needs its own minimum-change floor; add one group at a
 time and re-measure.
+
+## Email alerts (23 Oct 2026)
+
+**Why.** An alert that nobody is looking at is not an alert. The platform now emails the people an administrator names, so a
+problem reaches them without the screen being open. SMS and push messages are deferred; email needs no paid account and
+the sender can be changed in `.env` without touching the code.
+
+**Where it sits.** After detection, as its own worker step (`Worker.notify`, every 60 seconds, `services/notify.py`). It only
+reads alerts and events that already exist, in live mode, so it cannot change a score, an alert or an evaluation result (replay
+does not use it). A mail server that is down, slow or refusing the login cannot hold up a detection cycle: the step has its own
+timeout (20 s), catches every error, and the worker keeps going.
+
+**What is sent.**
+- One email per alert, once (`Alert.notified_at`). Alerts that open in the same minute share one email. An alert that ends,
+  comes back or is acknowledged sends nothing more.
+- One email per cluster-wide event, not one per node (`ClusterEvent.notified_at`); the alerts held back during an event send
+  nothing. This can be turned off with the "Also tell me when many nodes become unusual at once" box. It matters because a cooling
+  failure shows up as an event, not as a few alerts.
+- Nothing for an alert that opened before the switch was turned on (the platform stores when it was turned on), that is older than
+  an hour, that is already being looked at, that has already ended, or that came from a replay.
+- At most 6 emails an hour. What waits is sent when the hour allows, while it is still news. Failed attempts and test emails do
+  not count towards the limit.
+- After a failed send it waits 5 minutes before trying again, and the alert stays unsent until a send works.
+
+**Settings.** On the Settings page (administrators only): on/off, up to 10 addresses, the event option, a "Send a test email"
+button that sends to the addresses as typed (without saving them), and the last five attempts with their result. Every attempt is
+recorded (`Notification`). The mail server, port, login and password are in `.env` (`EMAIL_HOST`, `EMAIL_PORT`,
+`EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS` or `EMAIL_USE_SSL`, `EMAIL_FROM`) and `SITE_URL` gives the links their
+address. The password is never stored in the database, shown on a page, put in a log or put in an email: an error from the mail
+server has it removed before it is recorded. A node name cannot add a header to an email (control characters are removed).
+
+**Not done.** SMS and push messages. A rule to send only when an alert has lasted some minutes. A message when an alert ends.
+Choosing recipients per user rather than one list. After running for a few days on the real cluster, the number of emails per
+day is the thing to look at; if it is too many, the "lasted some minutes" rule is the next step.

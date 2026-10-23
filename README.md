@@ -32,6 +32,8 @@ Open `http://<host>:8000/` and sign in. Check the worker with `docker compose lo
 
 Notes:
 
+* Email alerts are optional. Fill in the `EMAIL_` lines in `.env` (see `.env.example`; for Gmail use an app password, never the
+  account's own password) and set the addresses on the Settings page. With `EMAIL_HOST` empty nothing is sent.
 * `TIME_ZONE` is the time zone shown on screen and used for report days. It is `Africa/Johannesburg` (SAST) unless you set
   another name from the IANA list in `.env`; everything stored is UTC either way.
 * `PROMETHEUS_URL` is the address of Prometheus **as seen from inside the containers**. For a

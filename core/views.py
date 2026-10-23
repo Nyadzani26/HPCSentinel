@@ -22,13 +22,14 @@ from django.views.decorators.http import require_POST
 
 from core import display, forms
 from core.config import ConfigError, load_config
-from core.models import (Alert, AlertAction, ClusterEvent, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition,
+from core.models import (Alert, AlertAction, ClusterEvent, CycleRun, EvaluationRun, ExcludedPeriod, ExperimentEntry, InvalidTransition, Notification,
                          Job, ModelVersion, Node, NodeWindow, Report, User)
 from core.pipeline.jobs import JobError, import_experiments
 from core.services import readiness as readiness_service
 from core.services import settings_store
 from core.services import autolearn
 from core.services import chassis as chassis_service
+from core.services import notify as notify_service
 from core.services import timeline as timeline_service
 from core.services import reports as reports_service
 from core.services.review import PermissionDenied, ReviewService
@@ -623,13 +624,16 @@ def _queue(request, job_type, form, params, message=None):
 def controls(request):
     """Model and experiment controls: train, replay, evaluate, excluded periods, experiment log (FR-16, FR-28 to FR-30)."""
     today = timezone.localtime().replace(minute=0, second=0, microsecond=0)      # the fields are read in the same zone
+    notify = notify_service.get_settings()
     fmt_ = lambda d: d.strftime("%Y-%m-%dT%H:%M")  # noqa: E731
     train_initial = {"start": fmt_(today - timedelta(days=16)), "end": fmt_(today - timedelta(days=2))}
     test_initial = {"start": fmt_(today - timedelta(days=2)), "end": fmt_(today)}
     forms_ = {"train": forms.TrainForm(initial=train_initial),
               "replay": forms.ModelPeriodForm(prefix="replay", initial=test_initial),
               "evaluate": forms.ModelPeriodForm(prefix="eval", initial=test_initial), "excluded": forms.ExcludedPeriodForm(),
-              "upload": forms.ExperimentUploadForm(), "chassis": forms.ChassisForm(initial={"layout": chassis_service.layout_text()})}
+              "upload": forms.ExperimentUploadForm(), "chassis": forms.ChassisForm(initial={"layout": chassis_service.layout_text()}),
+              "notify": forms.NotifyForm(initial={"enabled": notify["enabled"], "recipients": ", ".join(notify["recipients"]),
+                                                  "events": notify["events"]})}
     try:
         base_cfg = _file_config()
     except ConfigError as exc:
@@ -703,6 +707,24 @@ def controls(request):
                 messages.success(request, f"Chassis saved: {placed} node{'s' if placed != 1 else ''} placed in {len(layout)} chassis."
                                  if layout else "Chassis layout cleared. The Overview shows one list of nodes.")
                 return redirect("controls")
+        elif action == "notify_test":
+            # Sends to the addresses as typed, without saving, and keeps what was typed on screen.
+            typed = request.POST.get("recipients", "")
+            sent, text = notify_service.send_test(typed)
+            (messages.success if sent else messages.error)(request, text)
+            forms_["notify"] = forms.NotifyForm(initial={"enabled": "enabled" in request.POST, "recipients": typed,
+                                                         "events": "events" in request.POST})
+        elif action == "notify":
+            form = forms_["notify"] = forms.NotifyForm(request.POST)
+            if form.is_valid():
+                d = form.cleaned_data
+                saved = notify_service.save_settings(request.user, d["enabled"], d["recipients"], d["events"])
+                if saved["enabled"]:
+                    messages.success(request, f"Email alerts are on. They go to {', '.join(saved['recipients'])}. "
+                                              "Only alerts that open from now on are sent.")
+                else:
+                    messages.success(request, "Email alerts are off. The addresses are kept for when you turn them on.")
+                return redirect("controls")
         elif action == "upload":
             form = forms_["upload"] = forms.ExperimentUploadForm(request.POST, request.FILES)
             if form.is_valid():
@@ -723,7 +745,10 @@ def controls(request):
         "jobs": Job.objects.order_by("-requested_at")[:10],
         "autorefresh": request.method == "GET" and Job.objects.filter(status__in=["PENDING", "RUNNING"]).exists(),
         "learning": _learning(cfg),
-        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "chassis": "source", "learn_now": "models",
+        "notify_server": notify_service.server_status(),
+        "notifications": Notification.objects.order_by("-created_at")[:5],
+        "active_tab": {"settings": "source", "test_connection": "source", "readiness": "source", "chassis": "source", "notify": "source",
+                       "notify_test": "source", "learn_now": "models",
                        "train": "advanced", "replay": "advanced", "evaluate": "advanced", "upload": "advanced",
                        "excluded": "advanced"}.get(request.POST.get("action"), "source"),
         "models": ModelVersion.objects.order_by("-trained_at")[:10],

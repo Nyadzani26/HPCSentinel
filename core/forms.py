@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from core.models import Alert, ExcludedPeriod, ModelVersion, Node
 from core.services import chassis as chassis_service
+from core.services import notify as notify_service
 
 DT = forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M")
 
@@ -123,6 +124,25 @@ class SettingsForm(forms.Form):
             for field in ("alert_threshold", "persistence_windows"):
                 if data.get(field) is None and field not in self.errors:
                     self.add_error(field, "Enter a number.")
+        return data
+
+
+class NotifyForm(forms.Form):
+    """Who gets an email when an alert opens (see core/services/notify.py). The mail server itself is set in .env."""
+    enabled = forms.BooleanField(required=False, label="Send an email when an alert opens")
+    recipients = forms.CharField(required=False, label="Send to", widget=forms.Textarea(attrs={"rows": 3}))
+    events = forms.BooleanField(required=False, label="Also tell me when many nodes become unusual at once")
+
+    def clean_recipients(self):
+        try:
+            return ", ".join(notify_service.parse_recipients(self.cleaned_data.get("recipients", "")))
+        except notify_service.NotifyError as exc:
+            raise forms.ValidationError(str(exc)) from None
+
+    def clean(self):
+        data = super().clean()
+        if data.get("enabled") and not data.get("recipients") and "recipients" not in self.errors:
+            self.add_error("recipients", "Add at least one email address, or turn email alerts off.")
         return data
 
 

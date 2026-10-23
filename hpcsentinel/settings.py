@@ -147,3 +147,23 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 HPCSENTINEL_CONFIG = os.environ.get("HPCSENTINEL_CONFIG", "config/hpcsentinel.yml")
 PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "")
 MODEL_STORE = os.environ.get("MODEL_STORE", str(BASE_DIR / "model_store"))
+
+# --- Email alerts (FR-31) ---
+# Optional. With EMAIL_HOST empty the platform sends nothing. The password belongs in .env, never in the repository.
+def _env_port(name, default):
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except ValueError:                                 # a typo must not stop the monitoring
+        return default
+
+
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "").strip()
+EMAIL_PORT = _env_port("EMAIL_PORT", 587)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "").strip()
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", False)                 # port 465
+EMAIL_USE_TLS = False if EMAIL_USE_SSL else env_bool("EMAIL_USE_TLS", True)      # port 587 (STARTTLS)
+EMAIL_TIMEOUT = 20                                               # a mail server that hangs must not hang the worker
+DEFAULT_FROM_EMAIL = os.environ.get("EMAIL_FROM", "").strip() or EMAIL_HOST_USER or "hpcsentinel@localhost"
+# The public address of this site, used for the links in emails (for example https://smshost.tail06bf7e.ts.net). Empty: no links.
+SITE_URL = os.environ.get("SITE_URL", "").strip().rstrip("/")

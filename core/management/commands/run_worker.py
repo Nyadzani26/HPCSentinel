@@ -9,6 +9,7 @@ from core.config import ConfigError, load_config
 from core.pipeline.cycle import DetectionCycle
 from core.pipeline.jobs import JobError, process_pending
 from core.services import autolearn
+from core.services import notify as notify_service
 from core.services import reports as reports_service
 from core.services.prometheus import PrometheusError
 from core.services.settings_store import effective_config, make_client
@@ -47,6 +48,13 @@ class Worker:
         except Exception:  # noqa: BLE001 - never stop the worker
             log.exception("Report generation failed.")
 
+    def notify(self):
+        """Email what is new (see services/notify). A mail problem is logged and never reaches detection."""
+        try:
+            notify_service.sweep()
+        except Exception:  # noqa: BLE001 - never stop the worker
+            log.exception("Email alerts failed.")
+
     def learn(self):
         """Zero-touch learning: decide whether to learn now (first model, better coverage, or weekly refresh)."""
         cfg, client = self.current()
@@ -78,6 +86,7 @@ class Command(BaseCommand):
         if options["once"]:
             worker.jobs()
             worker.tick()
+            worker.notify()
             worker.learn()
             worker.reports()
             return
@@ -90,6 +99,8 @@ class Command(BaseCommand):
         # The platform decides for itself when to learn; no administrator action is needed (see services/autolearn).
         scheduler.add_job(worker.learn, "interval", minutes=15, max_instances=1, coalesce=True)
         scheduler.add_job(worker.reports, "interval", minutes=60, max_instances=1, coalesce=True)
+        # Email alerts are a separate step after detection: a slow or failing mail server cannot hold up a cycle.
+        scheduler.add_job(worker.notify, "interval", seconds=60, max_instances=1, coalesce=True)
         log.info("Worker started; one cycle every %s seconds against %s.", interval, cfg["prometheus"]["url"])
         worker.tick()  # first cycle immediately
         worker.learn()  # and a first look at whether there is enough data to learn from
