@@ -387,3 +387,45 @@ as one. Normal is now a soft green (`--norm`) on the map tiles, the timeline squ
 dot in the Nodes list. It stays light, with dark green text, so that the saturated red, amber and purple still carry
 the eye, and a person who cannot tell red from green can still separate them by lightness and by the written state
 beside every dot. Not scored keeps its dashed outline, and its timeline squares stay a cool grey.
+
+## Temperatures, fans and Slurm (planned, not started)
+
+**Status.** Deferred until after the presentations, so that the scope of the evaluated platform stays fixed. Nothing here is built.
+The 21 Oct results (9 of 10 faults found, median 285 s, 84 false alerts per node-week) were measured without it and stay valid
+only while these readings stay out of the combined score.
+
+**Why it matters.** Ranger is switched on about 7 hours a day because its cooling is not stable. A cooling failure, or a node
+that overheats while idle, is the fault the site cares about most, and the platform cannot see it today.
+
+**Three things that would cause false alarms if temperatures were simply added to the metric list.**
+1. After a job ends the CPU is idle but the node is still hot. Scoring it as idle straight away would alert at every job end.
+2. A cooling failure is a cluster-wide event. Cluster events hold back per-node alerts, which is wrong here: a cooling event
+   must raise an alert.
+3. Some days the platform learns from may already contain hot periods, so it could learn "hot" as normal.
+
+**Phases.**
+1. Get the readings into Prometheus (the platform only reads Prometheus). Check first what node_exporter already reports
+   (CPU temperature, thermal-throttle counters). The IPMI readings the Ranger audit script takes need a small collector or an
+   IPMI exporter. Poll about once a minute. The BMC password must be changed first.
+2. Collect a few days and measure: how fast a node heats after a job starts, how long it takes to cool after one ends, how much
+   ambient moves through the day. These set the cool-down hold-back and the smallest change worth alerting on.
+3. Shadow mode: score the readings, record them, raise no alerts, and count what would have fired per node-week the way the
+   21 Oct evaluation did.
+4. Cooling alerts on, for the chassis and for the node.
+5. Slurm, as an optional extra source (an exporter into Prometheus). With it absent the platform behaves as now.
+
+**Rules to keep false alarms low.** Judge a node's temperature against its chassis ambient. Alert on high and flat or rising,
+not high and falling. Compare the fan modules of a chassis with each other. Take the vendor's own warning and critical limits
+as a backstop. Treat a missing sensor reading as missing. Keep the 3-check sustain rule. Use the start-up hold-back for the
+warm-up after boot and check whether 60 minutes is enough. The chassis ambient sensor and several idle nodes of a chassis
+warming together are the main signals for an air-conditioning failure; the rate of rise matters as much as the level.
+
+**What Slurm would add.** Exact job start and end times (a precise cool-down hold-back, job markers on charts); a cross-check
+of Slurm state against CPU use (a stuck job, a stray process); nodes an administrator drained or took down are not treated as
+faults; repeated job failures on one node. CPU-based load state stays primary, because the baselines were learned on it and
+Slurm "allocated" does not mean the CPU is busy.
+
+**Other readings, by value.** Highest value and lowest false-alarm risk: thermal-throttle counters, BMC event log entries,
+power-supply status and power draw, fan failure, read-only filesystems, failed services (slurmd, munge). Next: pressure-stall
+metrics, uncorrectable memory errors, network link state, disk SMART. Each needs its own minimum-change floor; add one group at a
+time and re-measure.
