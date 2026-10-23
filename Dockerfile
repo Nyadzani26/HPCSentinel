@@ -1,4 +1,7 @@
-FROM python:3.12-slim
+# Pinned to Debian bookworm (OpenSSL 3.0). The plain python:3.12-slim tag moved to a Debian with OpenSSL 3.5, and from
+# the Ranger head node its secure handshake to smtp.gmail.com ended with SSLEOFError (the host's own OpenSSL worked), which
+# stopped email alerts. Move off bookworm only after sending a test email from Settings on the new image.
+FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

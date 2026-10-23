@@ -460,6 +460,13 @@ recorded (`Notification`). The mail server, port, login and password are in `.en
 address. The password is never stored in the database, shown on a page, put in a log or put in an email: an error from the mail
 server has it removed before it is recorded. A node name cannot add a header to an email (control characters are removed).
 
+**Found on Ranger, 23 Oct 2026.** The first test email failed with `SSLEOFError: UNEXPECTED_EOF_WHILE_READING`. From the head
+node, `openssl s_client -starttls smtp` to smtp.gmail.com worked, but the same step from inside the container did not. The
+container used OpenSSL 3.5.7 (the plain `python:3.12-slim` tag had moved to a newer Debian); the head node's own OpenSSL is older.
+The likely cause is the larger handshake message of the newer OpenSSL being cut on the way out, but that was not proved. The
+Dockerfile is therefore pinned to `python:3.12-slim-bookworm` (OpenSSL 3.0). If email stops working after an image change,
+run the `smtplib` STARTTLS check from `podman exec` first.
+
 **Not done.** SMS and push messages. A rule to send only when an alert has lasted some minutes. A message when an alert ends.
 Choosing recipients per user rather than one list. After running for a few days on the real cluster, the number of emails per
 day is the thing to look at; if it is too many, the "lasted some minutes" rule is the next step.
