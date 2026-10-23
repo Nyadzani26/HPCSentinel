@@ -337,6 +337,7 @@ class NodeWindow(models.Model):
         RELIABLE = "RELIABLE", "Reliable"
         UNRELIABLE = "UNRELIABLE", "Unreliable"
         NOT_LEARNED = "NOT_LEARNED", "Not yet learned"
+        STARTING = "STARTING", "Starting up"
 
     class LoadState(models.TextChoices):
         IDLE = "IDLE", "Idle"

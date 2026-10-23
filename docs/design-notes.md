@@ -366,3 +366,16 @@ local time would shift every evidence file that was already recorded.
 and PostgreSQL does, so the 21 Oct log (which described each fault in a sentence) imported in the tests and failed
 with a server error in production. The limit is now 200 characters, and an over-long value is refused with a message
 naming the row, so the file is never half-imported and the person is told what to shorten.
+
+## Start-up hold-back
+
+Baselines are learned from nodes that have settled. A node in its first hour after boot is busier in ways no job
+explains (NFS and network activity, daemons starting), and Ranger is switched on every day. After the morning boot on
+23 Oct, 14 idle nodes were flagged together and 15 raised their own alerts about an hour after boot, almost all for
+NFS request variation. The platform now leaves a node alone for `startup_minutes` after it boots: its windows are
+stored as Starting up, never raise an alert, and are left out of learning. The boot time comes from
+`node_boot_time_seconds` (`cluster.uptime_query` can replace the query), so the platform still needs only Prometheus.
+
+If the boot time cannot be read, or a node has no boot time, nothing is held back, because a failed query must never
+silence a node (NFR-08). The cost is that a real fault in the first minutes after boot goes unreported; the node shows
+as Starting up until the period ends. The default of 60 minutes is a starting value to be tuned from measured boots.

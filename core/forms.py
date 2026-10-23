@@ -110,6 +110,7 @@ class SettingsForm(forms.Form):
     alert_threshold = forms.FloatField(label="Alert threshold", min_value=0.1, max_value=100, required=False,
                                        localize=False, widget=forms.TextInput(attrs={"inputmode": "decimal"}))
     persistence_windows = forms.IntegerField(label="Consecutive abnormal windows required", min_value=1, max_value=20, required=False)
+    startup_minutes = forms.IntegerField(label="Minutes to leave a node alone after it boots", min_value=0, max_value=720, required=False)
 
     def clean(self):
         data = super().clean()

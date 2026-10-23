@@ -50,6 +50,20 @@ class ConfigTests(SimpleTestCase):
         with self.assertRaisesRegex(ConfigError, "regular expression"):
             validate(cfg)
 
+    def test_the_start_up_hold_back_is_checked(self):
+        base = yaml.safe_load(EXAMPLE.read_text())
+        for bad in (-1, 5000, "an hour", True):
+            cfg = copy.deepcopy(base)
+            cfg["detection"]["startup_minutes"] = bad
+            with self.assertRaisesRegex(ConfigError, "startup_minutes"):
+                validate(cfg)
+        cfg = copy.deepcopy(base)
+        cfg["cluster"]["uptime_query"] = "node_boot_time_seconds"            # not limited to the configured nodes
+        with self.assertRaisesRegex(ConfigError, r"uptime_query.*\$SELECTOR"):
+            validate(cfg)
+        cfg["cluster"]["uptime_query"] = "time() - node_boot_time_seconds{$SELECTOR}"
+        validate(cfg)
+
     def test_out_of_range_settings_are_rejected(self):
         for key, value, text in [
             ("retrieval_interval_seconds", 5, "at least 30"),

@@ -57,7 +57,7 @@ def administrator_required(view):
 
 
 def node_state(node, window, live_alert, in_event=False):
-    """Colour and label of a node tile (S-02): normal, unusual, under review or unreliable.
+    """Colour and label of a node tile (S-02): normal, unusual, under review, starting up or unreliable.
 
     `in_event` is true for a node that is unusual right now but whose own alert is held back because it is part of a
     cluster-wide event that is still going (BR-13). Without it such a node would be labelled Normal beside a score
@@ -68,6 +68,8 @@ def node_state(node, window, live_alert, in_event=False):
             return "review", "Under review"
         return "unusual", "Unusual"
     if window is None or window.quality != NodeWindow.Quality.RELIABLE:
+        if window is not None and window.quality == NodeWindow.Quality.STARTING:
+            return "unknown", "Starting up"
         return "unknown", "No baseline" if window is not None and window.quality == "NOT_LEARNED" else "Unreliable"
     if in_event:
         return "unusual", "In cluster event"
@@ -275,6 +277,7 @@ def node_detail(request, name):
     cycle = CycleRun.objects.filter(mode="LIVE").order_by("-started_at").select_related("config").first()
     threshold = _alert_level(cycle)
     effects = ((cycle.config.content or {}).get("detection") or {}).get("min_effect") or {} if cycle else {}
+    startup = ((cycle.config.content or {}).get("detection") or {}).get("startup_minutes") if cycle else None
     state = latest.load_state if latest else None
     baseline, pooled = _baseline_lookup(node, state)
     series = {}
@@ -311,6 +314,7 @@ def node_detail(request, name):
         "node": node, "latest": latest, "chart": chart, "threshold": threshold, "state_css": css, "state_label": label,
         "unusual": unusual, "rest": rest, "alerts": alerts[:20], "markers": markers, "live_alert": live_alert,
         "has_band": bool(baseline), "map_groups": _fleet()["map_groups"], "selected": node.name,
+        "startup_minutes": startup,
     })
 
 
@@ -635,6 +639,7 @@ def controls(request):
     forms_["settings"] = forms.SettingsForm(initial={
         "prometheus_url": cfg["prometheus"]["url"], "alert_threshold": cfg["detection"]["alert_threshold"],
         "persistence_windows": cfg["detection"]["persistence_windows"],
+        "startup_minutes": int(cfg["detection"].get("startup_minutes", 0) or 0),
         "sensitivity": forms.sensitivity_of(cfg["detection"]["alert_threshold"], cfg["detection"]["persistence_windows"])})
     readiness = None
     if request.method == "POST":
@@ -645,7 +650,7 @@ def controls(request):
                 d = form.cleaned_data
                 try:
                     settings_store.save(request.user, url=d["prometheus_url"], threshold=d["alert_threshold"],
-                                        persistence=d["persistence_windows"])
+                                        persistence=d["persistence_windows"], startup=d["startup_minutes"])
                 except settings_store.SettingError as exc:
                     form.add_error(None, str(exc))
                 else:

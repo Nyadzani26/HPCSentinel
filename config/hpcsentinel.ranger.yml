@@ -20,6 +20,8 @@ cluster:
   selector: 'job="ranger_compute_nodes"'
   # Label that identifies a node in the node-exporter series.
   node_label: instance
+  # Optional. Seconds since each node booted, used by detection.startup_minutes. This is the default; it must contain $SELECTOR.
+  # uptime_query: 'time() - node_boot_time_seconds{$SELECTOR}'
   # How the label value is turned into the node name shown in the platform.
   # Example for values such as "10.10.10.116:9100" -> "compute16":
   #   node_name_regex: '^10\.10\.10\.1(?P<n>\d\d):9100$'
@@ -35,6 +37,7 @@ detection:
   load_idle_cpu_busy: 0.10          # CPU busy ratio below which a node counts as idle (idle Ranger nodes stay under 1%; one busy core is a few per cent of a node, so a one-process fault stays 'idle' and is still scored)
   feature_spans_minutes: [5, 15]    # rolling windows used as features; add 60 only with state_stability_minutes: 60
   state_stability_minutes: 15       # a node is scored only after its load state has been steady this long
+  startup_minutes: 60               # a node that booted less than this long ago is not scored: it behaves differently while it settles (0 turns this off; needs node_boot_time_seconds from node_exporter, or your own cluster.uptime_query)
   train_stride_minutes: 2           # spacing of the windows used for learning
   learn_days: 14                    # the platform learns from the reliable data of the last this many days, by itself
   learn_min_hours: 3                # clean data needed per node before the first automatic learning (Ranger is only on ~7 h a day)

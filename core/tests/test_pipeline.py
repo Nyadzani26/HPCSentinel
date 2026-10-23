@@ -69,6 +69,63 @@ class FeatureTests(TestCase):
             self.assertIn(name, table.columns)
         self.assertNotIn("cpu_busy__mean_60", table.columns)  # 60 minutes only when configured with equal stability
 
+    def test_a_node_that_only_just_booted_is_not_scored(self):  # BR-02: baselines describe settled nodes
+        frame = self.frame()
+        frame[feat.UPTIME_COL] = [float(i) for i in range(len(frame))]          # booted when the frame starts
+        cfg = config(startup_minutes=90)
+        table = feat.feature_table(frame, cfg)
+        self.assertEqual(table[feat.QUALITY_COL].iloc[60], "STARTING")          # reliable data, but only 60 minutes up
+        self.assertEqual(table[feat.QUALITY_COL].iloc[120], "RELIABLE")         # 120 minutes up: settled
+        self.assertFalse([c for c in table.columns if "uptime" in c])           # the uptime is context, never a feature
+
+    def test_the_hold_back_is_off_unless_asked_for_and_never_guesses(self):
+        frame = self.frame()
+        frame[feat.UPTIME_COL] = [float(i) for i in range(len(frame))]
+        self.assertEqual(feat.feature_table(frame, config(startup_minutes=0))[feat.QUALITY_COL].iloc[60], "RELIABLE")
+        unknown = self.frame()                                                   # no boot time at all: score as before
+        self.assertEqual(feat.feature_table(unknown, config(startup_minutes=90))[feat.QUALITY_COL].iloc[60], "RELIABLE")
+        frame[feat.UPTIME_COL] = float("nan")
+        self.assertEqual(feat.feature_table(frame, config(startup_minutes=90))[feat.QUALITY_COL].iloc[60], "RELIABLE")
+
+    def test_starting_windows_are_left_out_of_learning(self):  # the baselines must not learn start-up behaviour
+        frame = self.frame()
+        frame[feat.UPTIME_COL] = [float(i) for i in range(len(frame))]
+        learned = feat.training_table(frame, config(startup_minutes=90), 1)
+        self.assertGreater(len(learned), 0)
+        self.assertTrue(all(ts >= frame.index[90] for ts in learned.index))
+
+    def test_the_boot_time_is_fetched_only_when_the_hold_back_is_on(self):
+        asked = []
+
+        class Client:
+            def query_range(self, query, start, end, step, label="instance"):
+                asked.append(query)
+                idx = [float(start) + 60 * i for i in range(10)]
+                value = 7200.0 if "boot_time" in query else 0.02
+                return {"10.10.10.101:9100": [(t, value) for t in idx]}
+
+        cfg = config(startup_minutes=0)
+        feat.fetch_frames(Client(), cfg, 1_000_000, 1_000_600, step=60)
+        self.assertFalse([q for q in asked if "boot_time" in q])
+        asked.clear()
+        cfg = config(startup_minutes=60)
+        frame = feat.fetch_frames(Client(), cfg, 1_000_000, 1_000_600, step=60)["10.10.10.101:9100"]
+        self.assertEqual(len([q for q in asked if "boot_time" in q]), 1)
+        self.assertEqual(float(frame[feat.UPTIME_COL].iloc[-1]), 120.0)          # seconds become minutes
+
+    def test_a_failed_boot_time_query_never_silences_a_node(self):  # NFR-08
+        from core.services.prometheus import PrometheusError
+
+        class Client:
+            def query_range(self, query, start, end, step, label="instance"):
+                if "boot_time" in query:
+                    raise PrometheusError("no such metric")
+                return {"10.10.10.101:9100": [(float(start) + 60 * i, 0.02) for i in range(10)]}
+
+        frames = feat.fetch_frames(Client(), config(startup_minutes=60), 1_000_000, 1_000_600, step=60)
+        self.assertNotIn(feat.UPTIME_COL, frames["10.10.10.101:9100"].columns)
+        self.assertIn("cpu_busy", frames["10.10.10.101:9100"].columns)
+
     def test_spans_are_configurable(self):  # NFR-10
         table = feat.feature_table(self.frame(minutes=300), config(feature_spans_minutes=[5, 15, 60], state_stability_minutes=60))
         self.assertIn("cpu_busy__mean_60", table.columns)
@@ -223,6 +280,32 @@ class PipelineTests(TestCase):
         kept = jobs._drop_excluded(frame)
         self.assertFalse(((kept.index > pd.Timestamp(T0 + timedelta(hours=5))) &
                           (kept.index <= pd.Timestamp(T0 + timedelta(hours=9)))).any())
+
+    def test_nodes_that_just_booted_are_recorded_as_starting_and_never_alert(self):  # the first hour after boot
+        import core.pipeline.cycle as cycle_module
+        cfg = {**self.cfg, "detection": {**self.cfg["detection"], "startup_minutes": 60}}
+        shifted = T0.timestamp() + 86400
+
+        def run(uptime_minutes):
+            client = SyntheticClient(cfg, n_nodes=8)
+
+            def query_range(q, s, e, step, label="instance"):
+                if "boot_time" in q:
+                    times = range(int(shifted // step * step), int(shifted + 3600) + 1, step)
+                    return {l: [(float(t), uptime_minutes * 60.0) for t in times] for l in client.labels}
+                return SyntheticClient.query_range(client, q, shifted, shifted + 3600, step, label)
+
+            client.query_range = query_range
+            original, cycle_module.timezone.now = cycle_module.timezone.now, lambda: T0 + timedelta(days=1, hours=1)
+            try:
+                cycle = DetectionCycle(cfg, client).run()
+            finally:
+                cycle_module.timezone.now = original
+            return set(NodeWindow.objects.filter(cycle=cycle).values_list("quality", flat=True))
+
+        self.assertEqual(run(10), {"STARTING"})                       # up for ten minutes: left alone
+        self.assertNotIn("STARTING", run(300))                        # up for five hours: judged as usual
+        self.assertFalse(Alert.objects.exists())
 
     def test_live_cycle_before_training_marks_nodes_not_learned(self):  # FR-12
         from django.utils import timezone

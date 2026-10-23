@@ -8,10 +8,22 @@ import math
 
 import pandas as pd
 
-from core.config import build_query
+from core.config import SELECTOR_TOKEN, build_query
+from core.services.prometheus import PrometheusError
 
 SPANS_MINUTES = (5, 15)
 RESAMPLE = "1min"
+
+# Minutes since each node booted, read from node_exporter's own boot time (no scheduler needed). It rides along in the
+# frame as a column that starts with "__", which marks it as context and not as a metric to turn into features.
+UPTIME_COL = "__uptime_minutes"
+DEFAULT_UPTIME_QUERY = "time() - node_boot_time_seconds{$SELECTOR}"
+
+
+def startup_minutes(cfg: dict) -> float:
+    """How long a node is left unscored after it boots; 0 (the default) turns the hold-back off."""
+    value = cfg["detection"].get("startup_minutes", 0)
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else 0.0
 
 
 def metric_names(cfg: dict) -> list[str]:
@@ -36,6 +48,17 @@ def fetch_frames(client, cfg: dict, start: float, end: float, step: int | None =
             values = pd.Series([p[1] for p in points], index=index, dtype="float64")
             values = values.replace([math.inf, -math.inf], math.nan)
             per_node.setdefault(source_label, {})[metric["name"]] = values
+    if startup_minutes(cfg):
+        query = cfg["cluster"].get("uptime_query", DEFAULT_UPTIME_QUERY).replace(SELECTOR_TOKEN, cfg["cluster"]["selector"])
+        try:
+            uptime = client.query_range(query, start, end, step, label=label)
+        except PrometheusError:
+            uptime = {}                     # boot time unknown: nodes are scored as before, never silenced by a failed query
+        for source_label, points in uptime.items():
+            if points:
+                index = pd.to_datetime([p[0] for p in points], unit="s", utc=True)
+                minutes = pd.Series([p[1] / 60 for p in points], index=index, dtype="float64")
+                per_node.setdefault(source_label, {})[UPTIME_COL] = minutes.replace([math.inf, -math.inf], math.nan)
     frames = {}
     for source_label, columns in per_node.items():
         frame = pd.DataFrame(columns).sort_index()
@@ -59,7 +82,10 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     * mean over each feature span (default 5 and 15 minutes) and standard deviation over 15 minutes per metric,
       named like 'cpu_busy__mean_15';
     * '__load_state': IDLE, LOADED or TRANSITION from the CPU busy ratio (BR-09);
-    * '__quality': RELIABLE or UNRELIABLE. A window is unreliable if too much of the last
+    * '__quality': RELIABLE, UNRELIABLE or STARTING. STARTING is a node that booted less than `startup_minutes` ago: it
+      is not scored, because the baselines describe nodes that have settled and a node in its first hour behaves
+      differently (more NFS and network activity, daemons starting). A node whose boot time is unknown is never
+      held back. A window is unreliable if too much of the last
       15 minutes is missing, if there are no fresh samples in the last 5 minutes, or if
       less than the stability period of data exist, or if the load state changed within the window (BR-02). Unreliable windows never raise alerts.
     """
@@ -67,12 +93,13 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     window = int(det.get("window_minutes", 15))
     out = {}
     spans = [int(x) for x in det.get("feature_spans_minutes", SPANS_MINUTES)]
+    columns = [c for c in frame.columns if not c.startswith("__")]       # metrics only; context columns are not features
     for span in spans:
-        means = frame.rolling(span, min_periods=1).mean()
-        for column in frame.columns:
+        means = frame[columns].rolling(span, min_periods=1).mean()
+        for column in columns:
             out[f"{column}__mean_{span}"] = means[column]
-    stds = frame.rolling(window, min_periods=3).std()
-    for column in frame.columns:
+    stds = frame[columns].rolling(window, min_periods=3).std()
+    for column in columns:
         out[f"{column}__std_15"] = stds[column]
     table = pd.DataFrame(out, index=frame.index)
 
@@ -93,7 +120,7 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     low, high = raw.rolling(stability, min_periods=1).min(), raw.rolling(stability, min_periods=1).max()
     table[STATE_COL] = ["LOADED" if lo == 1 else "IDLE" if hi == 0 else "TRANSITION" for lo, hi in zip(low, high)]
 
-    key = [c for c in QUALITY_KEY if c in frame.columns] or list(frame.columns)
+    key = [c for c in QUALITY_KEY if c in columns] or columns
     if key:
         missing = frame[key].isna().mean(axis=1).rolling(window, min_periods=1).mean()
         fresh = frame[key].notna().any(axis=1).astype(float).rolling(5, min_periods=1).max() > 0
@@ -102,6 +129,9 @@ def feature_table(frame: pd.DataFrame, cfg: dict, instants=None) -> pd.DataFrame
     else:
         ok = pd.Series(False, index=frame.index)
     table[QUALITY_COL] = ["RELIABLE" if v else "UNRELIABLE" for v in ok]
+    hold = startup_minutes(cfg)
+    if hold and UPTIME_COL in frame:
+        table.loc[(frame[UPTIME_COL] < hold).to_numpy(), QUALITY_COL] = "STARTING"       # unknown (NaN) compares False
 
     if instants is not None:
         wanted = pd.DatetimeIndex(instants)

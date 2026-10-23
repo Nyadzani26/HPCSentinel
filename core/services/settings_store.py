@@ -28,6 +28,8 @@ def effective_config(file_cfg: dict) -> dict:
         cfg["detection"]["alert_threshold"] = stored["alert_threshold"]
     if "persistence_windows" in stored:
         cfg["detection"]["persistence_windows"] = stored["persistence_windows"]
+    if "startup_minutes" in stored:
+        cfg["detection"]["startup_minutes"] = stored["startup_minutes"]
     return cfg
 
 
@@ -35,7 +37,7 @@ def make_client(cfg: dict) -> PrometheusClient:
     return PrometheusClient(cfg["prometheus"].get("url", ""), timeout=cfg["prometheus"]["timeout_seconds"])
 
 
-def validate(url=None, threshold=None, persistence=None) -> dict:
+def validate(url=None, threshold=None, persistence=None, startup=None) -> dict:
     out = {}
     if url is not None:
         try:
@@ -51,6 +53,10 @@ def validate(url=None, threshold=None, persistence=None) -> dict:
         if not isinstance(persistence, int) or not 1 <= persistence <= 20:
             raise SettingError("The number of consecutive windows must be a whole number from 1 to 20.")
         out["persistence_windows"] = persistence
+    if startup is not None:
+        if isinstance(startup, bool) or not isinstance(startup, int) or not 0 <= startup <= 720:
+            raise SettingError("The minutes to leave a node alone after it boots must be a whole number from 0 to 720.")
+        out["startup_minutes"] = startup
     return out
 
 

@@ -73,6 +73,12 @@ def validate(cfg: dict) -> dict:
     minimum = det.get("cluster_event_min_nodes", 5)
     if isinstance(minimum, bool) or not isinstance(minimum, int) or minimum < 2:
         raise ConfigError("'cluster_event_min_nodes' in detection must be a whole number, at least 2.")
+    hold = det.get("startup_minutes", 0)
+    if isinstance(hold, bool) or not isinstance(hold, (int, float)) or not 0 <= hold <= 720:
+        raise ConfigError("'startup_minutes' in detection must be a number of minutes from 0 to 720 (0 turns the hold-back off).")
+    uptime_query = cluster.get("uptime_query")
+    if uptime_query is not None and (not isinstance(uptime_query, str) or SELECTOR_TOKEN not in uptime_query):
+        raise ConfigError(f"'uptime_query' in cluster must contain {SELECTOR_TOKEN} so that it is limited to the configured nodes.")
     if not isinstance(det.get("self_clean", True), bool):
         raise ConfigError("'self_clean' in detection must be true or false.")
 

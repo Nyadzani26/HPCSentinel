@@ -87,11 +87,11 @@ def build(kind: str, start, end, now=None) -> dict:
     windows = NodeWindow.objects.filter(cycle__mode="LIVE", window_end__gte=start, window_end__lt=end)
     by_quality = {r["quality"]: r["n"] for r in windows.values("quality").annotate(n=Count("pk"))}
     reliable = by_quality.get("RELIABLE", 0)
-    seen = reliable + by_quality.get("NOT_LEARNED", 0)
+    seen = reliable + by_quality.get("NOT_LEARNED", 0) + by_quality.get("STARTING", 0)     # data arrived, even if held back
     total = seen + by_quality.get("UNRELIABLE", 0)
-    hours_reporting = (windows.filter(quality__in=["RELIABLE", "NOT_LEARNED"]).annotate(h=TruncHour("window_end"))
+    hours_reporting = (windows.filter(quality__in=["RELIABLE", "NOT_LEARNED", "STARTING"]).annotate(h=TruncHour("window_end"))
                        .values("h").distinct().count())
-    nodes_seen = windows.filter(quality__in=["RELIABLE", "NOT_LEARNED"]).values("node").distinct().count()
+    nodes_seen = windows.filter(quality__in=["RELIABLE", "NOT_LEARNED", "STARTING"]).values("node").distinct().count()
     outages = CycleRun.objects.filter(mode="LIVE", started_at__gte=start, started_at__lt=end, source_reachable=False).count()
 
     reviewed = [a for a in alerts if a.status == Alert.Status.CLOSED]

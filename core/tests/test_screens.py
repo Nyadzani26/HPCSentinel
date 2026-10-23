@@ -92,6 +92,20 @@ class FleetScreenTests(TestCase):
         self.assertNotIn("Every metric is inside its normal range", flagged)
         self.assertIn("No single metric is outside its normal range", flagged)
 
+    def test_a_node_that_just_booted_says_so_instead_of_looking_broken(self):  # BR-02
+        config = make_config()
+        config.content = {"detection": {"alert_threshold": 3.0, "startup_minutes": 60}}
+        config.save()
+        cycle = self.cycle()
+        node = make_node("compute01")
+        NodeWindow.objects.create(node=node, cycle=cycle, window_end=timezone.now(), quality="STARTING")
+        page = self.client.get(reverse("node_detail", args=["compute01"])).content.decode()
+        self.assertIn("Starting up", page)
+        self.assertIn("It booted recently, so it is not scored yet. Scoring starts once it has been up for 60 minutes.", page)
+        nodes = self.client.get(reverse("nodes")).content.decode()
+        self.assertIn('data-state="unknown"', nodes)
+        self.assertIn("Starting up", nodes)
+
     def test_unknown_node_is_404(self):
         self.assertEqual(self.client.get(reverse("node_detail", args=["nope"])).status_code, 404)
 
@@ -347,6 +361,23 @@ class ControlsTests(TestCase):
         self.assertIn("Ensure this value is less than or equal to 100", html)
         quiet = self.client.get(reverse("controls")).content.decode()
         self.assertIn("<details><summary>Fine-tune the numbers", quiet)  # stays folded when nothing is wrong
+
+    def test_the_start_up_hold_back_is_saved_applied_and_checked(self):  # FR-18
+        from core.config import load_config
+        from core.models import PlatformSetting
+        from core.services import settings_store
+        self.client.force_login(self.admin)
+        base = {"action": "settings", "prometheus_url": "http://prom:9090", "alert_threshold": "3", "persistence_windows": "3"}
+        self.client.post(reverse("controls"), {**base, "startup_minutes": "45"})
+        self.assertEqual(PlatformSetting.objects.get(key="startup_minutes").value, 45)
+        cfg = settings_store.effective_config(load_config(EXAMPLE))
+        self.assertEqual(cfg["detection"]["startup_minutes"], 45)
+        for bad in ("-1", "1000", "soon"):                                        # refused, and nothing changes
+            self.assertEqual(self.client.post(reverse("controls"), {**base, "startup_minutes": bad}).status_code, 200)
+        self.assertEqual(PlatformSetting.objects.get(key="startup_minutes").value, 45)
+        self.client.post(reverse("controls"), base)                                # field left out: the saved value stays
+        self.assertEqual(PlatformSetting.objects.get(key="startup_minutes").value, 45)
+        self.assertContains(self.client.get(reverse("controls")), 'name="startup_minutes" value="45"')
 
     def test_effective_config_applies_saved_settings(self):  # FR-18
         from core.config import load_config
