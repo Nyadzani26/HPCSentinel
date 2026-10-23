@@ -379,3 +379,11 @@ stored as Starting up, never raise an alert, and are left out of learning. The b
 If the boot time cannot be read, or a node has no boot time, nothing is held back, because a failed query must never
 silence a node (NFR-08). The cost is that a real fault in the first minutes after boot goes unreported; the node shows
 as Starting up until the period ends. The default of 60 minutes is a starting value to be tuned from measured boots.
+
+## Normal is green
+
+Normal nodes were a warm grey and Not scored nodes a dashed outline on the same paper, so at a glance the two read
+as one. Normal is now a soft green (`--norm`) on the map tiles, the timeline squares, the keys, the Normal label and the
+dot in the Nodes list. It stays light, with dark green text, so that the saturated red, amber and purple still carry
+the eye, and a person who cannot tell red from green can still separate them by lightness and by the written state
+beside every dot. Not scored keeps its dashed outline, and its timeline squares stay a cool grey.

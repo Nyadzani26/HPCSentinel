@@ -38,7 +38,7 @@
     <tbody>
     {% for r in rows %}
     <tr class="{% if r.state == 'unusual' %}hbad{% elif r.state == 'review' %}hwarn{% elif r.state == 'shared' %}hevt{% endif %}" data-state="{{ r.state }}" data-name="{{ r.node.name }}">
-      <td style="width:30px"><span class="dot {% if r.state == 'unusual' %}bad{% elif r.state == 'review' %}warn{% elif r.state == 'shared' %}evt{% elif r.state == 'unknown' %}off{% endif %}"></span></td>
+      <td style="width:30px"><span class="dot {% if r.state == 'unusual' %}bad{% elif r.state == 'review' %}warn{% elif r.state == 'shared' %}evt{% elif r.state == 'unknown' %}off{% else %}norm{% endif %}"></span></td>
       <td class="n"><a href="{% url 'node_detail' r.node.name %}">{{ r.node.name }}</a></td>
       {% if has_chassis %}<td class="muted wide-only">{{ r.node.chassis.name|default:"–" }}</td>{% endif %}
       <td class="{% if r.state == 'unusual' %}b bad{% elif r.state == 'review' %}b warn{% elif r.state == 'shared' %}b evt{% else %}muted{% endif %}">{{ r.label }}{% if r.window and r.window.load_state and r.state == 'normal' %}<span class="faint"> · {{ r.window.load_state|lower }}</span>{% endif %}</td>

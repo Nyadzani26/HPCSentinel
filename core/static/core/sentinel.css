@@ -4,7 +4,7 @@
   Two rules run through everything.
     1. Colour is reserved for state. Ink on warm paper carries the interface, and only a node's condition is coloured:
          red    = unusual          amber  = under review (someone is looking)
-         purple = cluster event    grey   = normal       dashed = no data
+         purple = cluster event    green  = normal       dashed = not scored
     2. The same blocks everywhere: a deep-green bar, panels with a title band, a map of the chassis on the left of
        the pages about nodes and alerts, and tables with dark-ink buttons.
 */
@@ -23,7 +23,7 @@
   --bad:#c9382d;  --badbg:#fdf3f1; --badtx:#9c2b21;
   --warn:#dc9a0f; --warnbg:#fdf7e6; --warntx:#7a5600;
   --evt:#6a60d8;  --evtbg:#e9e7fb;  --evttx:#4a42b0;
-  --cell:#e2dfd8; --quiet:#cdd0d6; --band:#e6e2d8; --ok:#2d7a57; --okbg:#e3efe8; --oktx:#1f5a3f;
+  --norm:#c8e2d1; --cell:#e2dfd8; --quiet:#cdd0d6; --band:#e6e2d8; --ok:#2d7a57; --okbg:#e3efe8; --oktx:#1f5a3f;
 
   --edge-ok:#4fd08d; --edge-attn:#ff6a55; --edge-event:#9488ff; --edge-down:#f2b24a;
 
@@ -134,7 +134,8 @@ body[data-edge="down"] { --edge:var(--edge-down); }
 .pill.RESOLVED { background:var(--cell); color:var(--mid); }
 .pill.CLOSED { background:#fff; color:var(--ink); box-shadow:inset 0 0 0 1px var(--edgeline2); }
 .pill.shared { background:var(--evt); color:#fff; }
-.pill.normal, .pill.unknown, .pill.DONE { background:var(--cell); color:var(--mid); }
+.pill.unknown, .pill.DONE { background:var(--cell); color:var(--mid); }
+.pill.normal { background:var(--norm); color:var(--oktx); }
 .pill.CONFIRMED { background:var(--okbg); color:var(--oktx); }
 .pill.FALSE_ALARM { background:var(--cell); color:var(--mid); }
 
@@ -168,7 +169,7 @@ tr.hwarn td, tr.hwarn:hover td { background:var(--warnbg); }
 tr.hevt td, tr.hevt:hover td { background:var(--evtbg); }
 td a { font-weight:600; }
 .b { font-weight:700; } .b.bad { color:var(--bad); } .b.warn { color:var(--warntx); } .b.evt { color:var(--evttx); }
-.dot.bad { background:var(--bad); } .dot.warn { background:var(--warn); } .dot.evt { background:var(--evt); } .dot.off { background:transparent; border:1px dashed #aaa69d; }
+.dot.norm { background:var(--ok); } .dot.bad { background:var(--bad); } .dot.warn { background:var(--warn); } .dot.evt { background:var(--evt); } .dot.off { background:transparent; border:1px dashed #aaa69d; }
 .meter { display:inline-block; width:44px; height:7px; background:#e7e4dd; position:relative; vertical-align:middle; margin-right:8px; border-radius:1px; }
 .meter i { position:absolute; left:0; top:0; bottom:0; background:#8d8a82; border-radius:1px; }
 .delta { font-weight:700; } .delta.down, .delta.up { color:var(--bad); }
@@ -182,7 +183,7 @@ td a { font-weight:600; }
 .mc h4 { font:600 12.5px var(--font); color:var(--mid); margin-bottom:5px; display:flex; justify-content:space-between; }
 .mc h4 span:last-child { font-weight:400; color:var(--faint); }
 .tg { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:4px; }
-.t { height:31px; background:var(--cell); font-size:12.5px; font-weight:600; color:#4b4943; display:flex; align-items:center; justify-content:center; border-radius:2px; position:relative; overflow:hidden; text-decoration:none; }
+.t { height:31px; background:var(--norm); font-size:12.5px; font-weight:600; color:var(--oktx); display:flex; align-items:center; justify-content:center; border-radius:2px; position:relative; overflow:hidden; text-decoration:none; }
 a.t:hover { text-decoration:none; box-shadow:inset 0 0 0 2px var(--ink); }
 .t.bad { background:var(--bad); color:#fff; } .t.warn { background:var(--warn); color:#2b1d00; } .t.evt { background:var(--evt); color:#fff; }
 .t.off { background:transparent; border:1px dashed #aaa69d; color:#aaa69d; }
@@ -190,7 +191,7 @@ a.t:hover { text-decoration:none; box-shadow:inset 0 0 0 2px var(--ink); }
 .t.dim { opacity:.55; }
 .lg { display:grid; grid-template-columns:1fr 1fr; gap:5px 10px; color:var(--mid); font-size:12.5px; margin:2px 0 16px; }
 .lg i, .lgd i:not(.sp), .lgd u { display:inline-block; width:10px; height:10px; margin-right:7px; border-radius:2px; vertical-align:-1px; }
-.k-n { background:var(--cell); } .k-u { background:var(--bad); } .k-w { background:var(--warn); } .k-e { background:var(--evt); }
+.k-n { background:var(--norm); } .k-u { background:var(--bad); } .k-w { background:var(--warn); } .k-e { background:var(--evt); }
 .k-q { background:#cdd0d6; } .k-x { border:1px dashed #aaa69d; background:#fff; }
 .side-h { font:700 12px var(--font); color:var(--mid); letter-spacing:.02em; margin:0 0 6px; }
 .side-row { border-top:1px solid var(--line); padding:9px 0; display:block; color:var(--ink); }

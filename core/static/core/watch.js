@@ -27,7 +27,7 @@
   function css(name, fallback) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback; }
   function readColors() {
     colors = { bad: css('--bad', '#c9382d'), warn: css('--warn', '#dc9a0f'), warntx: css('--warntx', '#7a5600'), evt: css('--evt', '#6a60d8'),
-               cell: css('--cell', '#e2dfd8'), quiet: css('--quiet', '#cdd0d6'), ink: css('--ink', '#1f1e1b'), mid: css('--mid', '#5f5c55'),
+               cell: css('--cell', '#e2dfd8'), norm: css('--norm', '#c8e2d1'), quiet: css('--quiet', '#cdd0d6'), ink: css('--ink', '#1f1e1b'), mid: css('--mid', '#5f5c55'),
                faint: css('--faint', '#8f8b82'), line: css('--line', '#dfdcd5'), line2: css('--line2', '#ebe8e2'), edge: css('--edgeline', '#cfccc4'),
                panel: css('--panel', '#fff'), grey: '#7c8794' };
   }
@@ -161,7 +161,7 @@
           ctx.strokeStyle = '#d2cfc7'; ctx.lineWidth = .7; ctx.strokeRect(x + .35, y + .35, w - .7, ROW - .7);
           continue;
         }
-        ctx.fillStyle = ch === 'u' ? colors.bad : ch === 'w' ? colors.warn : ch === 'e' ? colors.evt : ch === 'q' ? colors.quiet : colors.cell;
+        ctx.fillStyle = ch === 'u' ? colors.bad : ch === 'w' ? colors.warn : ch === 'e' ? colors.evt : ch === 'q' ? colors.quiet : colors.norm;
         ctx.fillRect(x, y, w, ROW);
       }
     });

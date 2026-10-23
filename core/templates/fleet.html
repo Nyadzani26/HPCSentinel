@@ -85,7 +85,7 @@
   <h2 id="attn-h"><span>Needs attention <span class="cnt bad">{{ attention|length }}</span></span></h2>
   {% for t in attention %}
   <div class="att">
-    <span class="dot {{ t.map }}"></span>
+    <span class="dot {{ t.map|default:"norm" }}"></span>
     <div><h3>{% alert_headline t.alert %}</h3>
       <p>Opened {{ t.alert.opened_at|ago }}, still going · {{ t.window.load_state|default:"–"|lower }}{% if t.node.chassis_id %} · {{ t.node.chassis.name|lower }}{% endif %}</p></div>
     <span class="pill {{ t.alert.status }}">{{ t.alert.get_status_display }}</span>
