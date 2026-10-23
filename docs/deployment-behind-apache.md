@@ -1,6 +1,7 @@
 # Deploying HPCSentinel behind Apache at /sentinel/
 
 HPCSentinel runs as its own containers and listens on loopback only (127.0.0.1:8000).
+That is the default; `WEB_BIND` in `.env` changes it when the page must be opened directly from another computer.
 Apache publishes it under a sub-path next to other applications such as RangerAccess.
 HPCSentinel stays standalone: it shares no database, session or code with them.
 

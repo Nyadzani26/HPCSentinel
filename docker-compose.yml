@@ -29,8 +29,9 @@ services:
     build: .
     command: gunicorn hpcsentinel.wsgi:application --bind 0.0.0.0:8000 --workers 2
     env_file: .env
+    # Loopback only unless .env sets WEB_BIND (the machine's own address, or 0.0.0.0 for every interface).
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${WEB_BIND:-127.0.0.1}:8000:8000"
     # Lets the settings page test a Prometheus server running on the host machine.
     extra_hosts:
       - "host.docker.internal:host-gateway"
