@@ -22,7 +22,7 @@
             <span class="hint">{% if r.data.value == "relaxed" %}Only clear, lasting problems. Fewest false alarms; may be slower or miss small ones.{% elif r.data.value == "balanced" %}A node must stay clearly unusual for about 6 minutes. Recommended.{% else %}Reacts to smaller, shorter changes. Finds more, with more false alarms.{% endif %}</span></span></label>
           {% endif %}{% endfor %}
         </fieldset>
-        <details><summary>Fine-tune the numbers</summary>
+        <details{% if settings_form.alert_threshold.errors or settings_form.persistence_windows.errors %} open{% endif %}><summary>Fine-tune the numbers</summary>
           <div class="hint" style="margin:.3rem 0 .6rem">Choosing a sensitivity above sets these for you. Edit them only for a custom setting, and tick Custom.</div>
           {% for r in settings_form.sensitivity %}{% if r.data.value == "custom" %}<label class="opt"><span class="optin">{{ r.tag }}</span><span><strong>Use the numbers below</strong></span></label>{% endif %}{% endfor %}
           <label for="id_alert_threshold">Alert level<span class="hint">How unusual a node must be to count (typically 2.5 to 4).</span>{{ settings_form.alert_threshold }}{{ settings_form.alert_threshold.errors }}</label>

@@ -143,6 +143,21 @@
     </details>
   </div>
 </section>
+{% if alerts and can_review %}<script>
+(function () {                      // review several alerts at once: the buttons work once something is ticked
+  var all = document.getElementById('pick-all'), boxes = document.querySelectorAll('.pick'), label = document.getElementById('picked'),
+      buttons = document.querySelectorAll('[data-needs-pick]');
+  function update() {
+    var n = document.querySelectorAll('.pick:checked').length;
+    if (label) label.textContent = n ? n + ' selected' : 'Tick alerts to review several at once.';
+    buttons.forEach(function (b) { b.disabled = !n; });
+    if (all) all.checked = n > 0 && n === boxes.length;
+  }
+  if (all) all.addEventListener('change', function () { boxes.forEach(function (b) { b.checked = all.checked; }); update(); });
+  boxes.forEach(function (b) { b.addEventListener('change', update); });
+  update();
+})();
+</script>{% endif %}
 {% if chart %}{{ chart|json_script:"score-data" }}{{ threshold|json_script:"threshold" }}
 {% include "_chart.html" %}
 <script>

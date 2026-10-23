@@ -73,6 +73,25 @@ class FleetScreenTests(TestCase):
         shown = self.client.get(reverse("node_detail", args=["compute01"])).context["unusual"]
         self.assertEqual([m["name"] for m in shown], ["context_switch_rate"])  # without the floor it would be called unusual
 
+    def test_an_unusual_node_is_never_called_fully_normal(self):  # FR-21: the words must agree with the badge
+        config = make_config()
+        make_model(config)
+        model = ModelVersion.objects.get(label="m1")
+        model.baselines = {"baselines": {"compute01": {"IDLE": {"context_switch_rate__mean_5": [50.0, 2.0, 100]}},
+                                         "compute02": {"IDLE": {"context_switch_rate__mean_5": [50.0, 2.0, 100]}}},
+                           "pooled": {"context_switch_rate__mean_5": 1.0}}
+        model.save()
+        cyc = self.cycle()
+        for name in ("compute01", "compute02"):   # both read the same, well inside their normal band
+            NodeWindow.objects.create(node=make_node(name), cycle=cyc, window_end=timezone.now(), quality="RELIABLE", load_state="IDLE",
+                                      combined_score=1.0, features={"context_switch_rate__mean_5": 50.5})
+        make_alert(Node.objects.get(name="compute02"), config=config, model=model)
+        calm = self.client.get(reverse("node_detail", args=["compute01"])).content.decode()
+        flagged = self.client.get(reverse("node_detail", args=["compute02"])).content.decode()
+        self.assertIn("Every metric is inside its normal range", calm)
+        self.assertNotIn("Every metric is inside its normal range", flagged)
+        self.assertIn("No single metric is outside its normal range", flagged)
+
     def test_unknown_node_is_404(self):
         self.assertEqual(self.client.get(reverse("node_detail", args=["nope"])).status_code, 404)
 
@@ -319,6 +338,16 @@ class ControlsTests(TestCase):
         self.assertEqual(PlatformSetting.objects.get(key="persistence_windows").value, 4)
         self.assertEqual(PlatformSetting.objects.get(key="prometheus_url").value, "http://prom:9090")
 
+    def test_a_refused_number_opens_the_fold_that_holds_it(self):  # FR-04: an error must be seen, not hidden
+        self.client.force_login(self.admin)
+        bad = {"action": "settings", "prometheus_url": "http://prom:9090", "sensitivity": "custom",
+               "alert_threshold": "500", "persistence_windows": "3"}
+        html = self.client.post(reverse("controls"), bad).content.decode()
+        self.assertIn("<details open><summary>Fine-tune the numbers", html)
+        self.assertIn("Ensure this value is less than or equal to 100", html)
+        quiet = self.client.get(reverse("controls")).content.decode()
+        self.assertIn("<details><summary>Fine-tune the numbers", quiet)  # stays folded when nothing is wrong
+
     def test_effective_config_applies_saved_settings(self):  # FR-18
         from core.config import load_config
         from core.services import settings_store
@@ -487,6 +516,13 @@ class AlertPageLayoutTests(TestCase):
         self.assertIn("Was it a real fault?", page)
         self.assertIn('class="t bad sel"', page)                          # its node is outlined on the map
         self.assertIn(reverse("alert_detail", args=[alert.pk]), page)
+
+    def test_the_bulk_review_buttons_come_with_the_script_that_switches_them_on(self):
+        """The buttons start disabled, so without the script nobody could review several alerts at once."""
+        make_alert(make_node("compute01"), status="RESOLVED")
+        page = self.client.get(reverse("alert_list") + "?status=review").content.decode()
+        self.assertIn("data-needs-pick", page)
+        self.assertIn("pick:checked", page)
 
     def test_an_alert_opened_from_another_tab_still_appears_in_the_list(self):
         alert = make_alert(make_node("compute05"), status="CLOSED", outcome="FALSE_ALARM")

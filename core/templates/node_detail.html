@@ -49,7 +49,11 @@
   </div>
 </section>
 {% elif latest and has_band %}
+{% if state_css == "unusual" or state_css == "review" %}
+<section class="panel"><div class="empty"><strong>No single metric is outside its normal range.</strong>The score comes from several metrics moving a little together. Open the alert to see how the platform weighed them.</div></section>
+{% else %}
 <section class="panel"><div class="empty"><strong>Every metric is inside its normal range.</strong>Nothing about this node stands out right now.</div></section>
+{% endif %}
 {% endif %}
 
 {% if rest %}
