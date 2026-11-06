@@ -5,7 +5,7 @@
 report Section 3.4. Anything marked Included in the report that is not "Done" or "Partly" must be reported in
 report Section 3.4.
 
-## Functional requirements (all 33 Included requirements)
+## Functional requirements (all 34 Included requirements)
 
 | ID | Requirement (short) | Status | Where | Tests |
 |---|---|---|---|---|
