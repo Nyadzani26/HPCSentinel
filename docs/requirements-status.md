@@ -1,9 +1,9 @@
 # Requirements status
 
-"Done" means implemented and covered by an automated test (`python manage.py test`, 267 tests).
-"Pending evidence" means implemented, but its verification needs a run on a real cluster
-(timings, browsers, a clean-host install) that has not been done yet. Anything marked Included in
-the report that is not "Done" or "Pending evidence" must be reported in report Section 3.4.
+"Done" means implemented and covered by an automated test (`python manage.py test`, 316 tests, all passing on 6 November 2026).
+"Partly" means implemented, but the evidence covers only part of the requirement; the gap is stated in the row and in
+report Section 3.4. Anything marked Included in the report that is not "Done" or "Partly" must be reported in
+report Section 3.4.
 
 ## Functional requirements (all 33 Included requirements)
 
@@ -69,16 +69,16 @@ Every change is recorded here so the report can state it as a deliberate deviati
 | NFR-01 Authorisation | Done | Role checks on every state-changing view; `test_screens` |
 | NFR-02 Credentials | Done | Passwords hashed by Django; minimum length 10; secrets only in `.env`; `.env` is git-ignored |
 | NFR-03 Input validation | Done | Django forms and model constraints; invalid periods, outcomes, CSV rows rejected (tests) |
-| NFR-04 Sessions | Done | HttpOnly, SameSite, idle expiry; `test_views` |
+| NFR-04 Sessions | Partly | HttpOnly, SameSite, 30-minute idle limit set in `hpcsentinel/settings.py`; the cookie flag is tested (`test_views`), the idle limit was read from the settings and not tested by waiting |
 | NFR-05 Non-intrusive | Done | Client issues only HTTP GET to query endpoints; `test_prometheus` |
-| NFR-06 Interface speed | Pending evidence | Needs timing on Ranger (Section 7) |
-| NFR-07 Detection cycle time | Pending evidence | Needs timing of a 48-node cycle on Ranger (Section 7) |
-| NFR-08 Reliability | Done | Outage recorded, no alerts raised, failed jobs recorded; `test_cycle`, `JobRunnerTests` |
-| NFR-09 Portability | Pending evidence | Docker Compose; clean-host install to be run and recorded |
-| NFR-10 Configurability | Done | Metrics, mapping and detector settings from configuration; `test_config` |
+| NFR-06 Interface speed | Done on test data | 6 Nov 2026: eight pages, 7 requests each, 48 nodes and 4 hours of cycles, Django test client: median 0.01 to 0.10 s, slowest 0.78 s (first Settings request); target 3 s. Not timed on the cluster, network and browser time not included |
+| NFR-07 Detection cycle time | Done on test data | 6 Nov 2026: 121 cycles for 48 synthetic nodes: median 1.6 s, 95th percentile 1.8 s, slowest 2.2 s; limit 120 s. Prometheus's own response time is not included |
+| NFR-08 Reliability | Partly | Outage recorded, no alerts raised, failed jobs recorded; `test_cycle`, `JobRunnerTests`. Prometheus was not stopped and restarted on the live cluster |
+| NFR-09 Portability | Partly | Compose files; the platform was rebuilt on the Ranger head node from the repository on 3 Nov 2026. No second, clean host was tested |
+| NFR-10 Configurability | Done | Metrics, mapping and detector settings from configuration; `test_config`; 6 Nov 2026: 4 of the 16 metrics removed from the configuration with no change to the code, 36 features per node, a fault still alerted |
 | NFR-11 Reproducibility | Done | Fixed seeds; `test_two_replays_of_the_same_period_give_the_same_alerts` |
-| NFR-12 Compatibility | Pending evidence | Browser check to be recorded |
-| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 267 tests |
+| NFR-12 Compatibility | Partly | 6 Nov 2026: nine pages at 1440 and 390 px in Chromium 141 with no script errors or sideways scrolling. Firefox was not tested |
+| NFR-13 Maintainability | Done | Pure pipeline modules separate from Django; 316 tests |
 
 ## Known limitations
 
@@ -87,3 +87,7 @@ Every change is recorded here so the report can state it as a deliberate deviati
 * Hardware sensors are not used (FR-32 deferred). The platform emails alerts (FR-31, see design-notes "Email alerts"); SMS and push messages are deferred.
 * Deferred until after the presentations (decided 23 Oct 2026, to keep the scope fixed): temperatures and fans, so that an overheating node or a cooling failure is seen. The Ranger site already reads these over IPMI (its `ranger-audit` script): chassis ambient and power-supply temperatures, four CPU temperatures and a board temperature per node, and two rotor speeds per fan module (8 modules in each of 4 chassis). Node-level temperatures fit the configuration-driven metric list once they are in Prometheus; chassis temperatures and fan modules belong to a chassis rather than a node, so they need a chassis concept in the data model. A display-only `Chassis` now exists (Settings, Chassis box; it arranges the Overview and never affects scoring), and the temperatures and fans can attach to it later. The readings themselves are not started. The plan is in design-notes.md, section "Temperatures, fans and Slurm (planned, not started)".
 * Assignment of nodes to groups is made in the Django administration site; one default group is used otherwise.
+* Evaluation (report Sections 6.4.5 and 9): the fault campaign of 21 October 2026 on Ranger found 9 of 10 injected faults with a median delay of 285 s, but the false-alert rate was 84 per node per week (target: 1) and only three fault types at one intensity were injected. The evaluation was not repeated on the submitted version, its stored records were lost on 3 November 2026, and Prometheus's retention may no longer hold the data.
+* The cause of the cluster-wide bursts of NFS requests seen on Ranger is not established.
+* There is no backup routine, no sign-in lockout, no second factor and sign-ins are not logged (see the README, "Operating notes").
+* Email alerts were tested in the automated tests only. A delivered message from the Ranger head node is not recorded in the report.
